@@ -1,0 +1,3 @@
+[submodule "cmoc_os9"]
+	path = cmoc_os9
+	url = https://github.com/kwhr0/cmoc_os9
