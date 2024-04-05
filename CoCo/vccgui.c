@@ -37,7 +37,6 @@ int redrawfx = 0;
 
 void SetStatusBarText(const char *, SystemState2 *);
 
-extern STRConfig CurrentConfig;
 extern JoyStick	LeftSDL;
 extern JoyStick RightSDL;
 
@@ -69,9 +68,9 @@ static int leftVolPrc = 25;
 static int rightVolPrc = 75;
 static int volMin = 0;
 static int volMax = 100;
-static double cpuOCval = 0.894;
-static double cpuMin = 0.894;
-static double cpuMax = 511.368;
+static int cpuOCval = BASE_CLOCK;
+static int cpuMin = BASE_CLOCK;
+static int cpuMax = 500;
 static int MemSize = 1;
 static int CPU = 0;
 static int MMU = 0;
@@ -255,17 +254,17 @@ void CPUIncDecF3F4(AG_Event *event)
     
     int incdec = AG_INT(1);
 
-    cpuMax = (double)CurrentConfig.MaxOverclock * cpuMin;
-    cpuOCval = (double)CurrentConfig.CPUMultiplyer * cpuMin;
+    cpuMax = CurrentConfig.MaxOverclock * cpuMin;
+    cpuOCval = CurrentConfig.CPUMultiplyer * cpuMin;
 
     if (cpuOCval <= cpuMin || cpuOCval >= cpuMax)
     {
         return;
     }
 
-    cpuOCval += cpuMin * (double)incdec;
+    cpuOCval += cpuMin * incdec;
 
-    CPUConfigSpeed((int)(cpuOCval/cpuMin));
+    CPUConfigSpeed(cpuOCval/cpuMin);
     JoyStickConfigRecordState();
     ConfigOKApply(0);
 }
@@ -349,7 +348,7 @@ void CPUspeedChange(AG_Event *event)
 {
     extern void CPUConfigSpeed(int);
 
-    CPUConfigSpeed((int)(cpuOCval/cpuMin));
+    CPUConfigSpeed(cpuOCval/cpuMin);
 }
 
 void MemSizeChange(AG_Event *event)
@@ -907,7 +906,8 @@ void PrintMonitorChange(AG_Event *event)
 void SetStatusBarText(const char *text, SystemState2 *EmuState2)
 {
     // char newtext[240];
-    // sprintf(newtext, "%s[%d,%d](%d,%d)", text, EmuState2->fx->wid.w, EmuState2->fx->wid.h, EmuState2->agwin->wid.w, EmuState2->agwin->wid.h); 
+    // sprintf(newtext, "%s[%d,%d](%d,%d)", text, EmuState2->fx->wid.w, EmuState2->fx->wid.h, EmuState2->agwin->wid.w, EmuState2->agwin->wid.h);
+    
     AG_LabelText(status, "%s", text);
 }
 
@@ -1032,7 +1032,7 @@ void Configure(AG_Event *ev)
         return;
     }
 
-    AG_WindowSetGeometryAligned(win, AG_WINDOW_ALIGNMENT_NONE, 682, 366);
+    AG_WindowSetGeometryAligned(win, AG_WINDOW_ALIGNMENT_NONE, 640, 316);
     AG_WindowSetCaptionS(win, "OVCC Options");
     AG_WindowSetCloseAction(win, AG_WINDOW_HIDE);
 
@@ -1081,22 +1081,22 @@ void Configure(AG_Event *ev)
         AG_LabelNew(tab, 0, "Over-Clocking");
         box = AG_BoxNewHoriz(tab, AG_BOX_HFILL | AG_BOX_FRAME);
 
-        cpuMax = (double)CurrentConfig.MaxOverclock * cpuMin;
+        cpuMax = CurrentConfig.MaxOverclock * cpuMin;
         sl = AG_SliderNew(box, AG_SLIDER_HORIZ, AG_SLIDER_EXCL | AG_SLIDER_HFILL);
-        AG_BindDouble(sl, "value", &cpuOCval);
-        AG_BindDouble(sl, "min", &cpuMin);
-        AG_BindDouble(sl, "max", &cpuMax);
-        AG_SetDouble(sl, "inc", 0.894);
+        AG_BindInt(sl, "value", &cpuOCval);
+        AG_BindInt(sl, "min", &cpuMin);
+        AG_BindInt(sl, "max", &cpuMax);
+        AG_SetInt(sl, "inc", BASE_CLOCK);
 
-        AG_Numerical *sb = AG_NumericalNewDblR(box, 0, NULL, NULL, &cpuOCval, cpuMin, cpuMax);
-        AG_SetDouble(sb, "inc", 0.894);
+        AG_Numerical *sb = AG_NumericalNewIntR(box, 0, NULL, NULL, &cpuOCval, cpuMin, cpuMax);
+        AG_SetInt(sb, "inc", BASE_CLOCK);
 
         hbox = AG_BoxNewHoriz(tab, AG_HBOX_EXPAND);
 
         AG_SetEvent(sl, "slider-changed", CPUspeedChange, NULL);
         AG_SetEvent(sb, "numerical-changed", CPUspeedChange, NULL);
         AG_SetEvent(sb, "numerical-return", CPUspeedChange, NULL);
-        cpuOCval = (double)CurrentConfig.CPUMultiplyer * cpuMin;
+        cpuOCval = CurrentConfig.CPUMultiplyer * cpuMin;
 
         // Mem Size Radio Buttons
 
@@ -1108,14 +1108,14 @@ void Configure(AG_Event *ev)
             "128KB",
             "512KB",
             "2048KB",
-            "8096KB",
+ //           "8096KB",
             NULL
         };
 
         AG_Radio *radio = AG_RadioNewFn(vbox, AG_RADIO_VFILL, radioItems, MemSizeChange, NULL);
         AG_BindInt(radio, "value", &MemSize);
         MemSize = (int)CurrentConfig.RamSize;
-
+/*
         // CPU Type Radio Buttons
 
         vbox = AG_BoxNewVert(hbox, AG_VBOX_VFILL | AG_BOX_FRAME);
@@ -1147,7 +1147,8 @@ void Configure(AG_Event *ev)
         radio = AG_RadioNewFn(vbox, AG_RADIO_VFILL, radioItems3, MMUChange, NULL);
         AG_BindInt(radio, "value", &MMU);
         MMU = (int)CurrentConfig.MmuType;
-    }
+*/
+	}
 
     tab = AG_NotebookAdd(nb, "Display", AG_BOX_VERT);
     {
@@ -1190,11 +1191,11 @@ void Configure(AG_Event *ev)
         xb = AG_CheckboxNewFn(vbox, 0, "Scan Lines", ScanLinesChange, NULL);
         AG_BindInt(xb, "state", &scanLines);
         scanLines = (int)CurrentConfig.ScanLines;
-
+/*
         xb = AG_CheckboxNewFn(vbox, 0, "Force Aspect", ForceAspectChange, NULL);
         AG_BindInt(xb, "state", &forceAspect);
         forceAspect = (int)CurrentConfig.Aspect;
-
+*/
         xb = AG_CheckboxNewFn(vbox, 0, "Allow Resize", AllowResizeChange, NULL);
         AG_BindInt(xb, "state", &allowResize);
         allowResize = (int)CurrentConfig.Resize;
@@ -1203,7 +1204,7 @@ void Configure(AG_Event *ev)
         AG_BindInt(xb, "state", &throttleSpeed);
         throttleSpeed = (int)CurrentConfig.SpeedThrottle;
     }
-
+/*
     tab = AG_NotebookAdd(nb, "Keyboard", AG_BOX_VERT);
     {
         AG_Box *box;
@@ -1226,7 +1227,7 @@ void Configure(AG_Event *ev)
         AG_BindInt(radio, "value", &keyboardMap);
         keyboardMap = (int)CurrentConfig.KeyMap;
     }
-
+*/
     tab = AG_NotebookAdd(nb, "Joysticks", AG_BOX_HORIZ);
     {
         AG_Box *hbox, *vbox, *vbox1, *vbox2, *vboxr;
@@ -1539,17 +1540,16 @@ AG_MenuItem *GetMenuAnchor()
     return itemCartridge;
 }
 
-void *CartLoad(void *p)
+void *CartLoad(void *state)
 {
     extern int InsertModule(char *);
-    SystemState2 *state = p;
 
     InsertModule(modulefile);
 
-	state->EmulationRunning = TRUE;
+	((SystemState2 *)state)->EmulationRunning = TRUE;
 	inLoadCart = 0;
 
-    return state;
+	return NULL;
 }
 
 void LoadPack(AG_Event *event)
@@ -1570,7 +1570,7 @@ void LoadPack(AG_Event *event)
         if (threadID == (AG_Thread)NULL)
         {
             fprintf(stderr, "Can't Start Cart Load Thread!\n");
-            return;
+			return;
         }
     }
 }
@@ -1700,63 +1700,63 @@ void KeyDownUp(AG_Event *event)
     extern void DoKeyBoardEvent(unsigned short, unsigned short, unsigned short);
 
 #ifdef DARWIN
-    // **** Added for latest MacOS ****
-    static int capslocked;
+	// **** Added for latest MacOS ****
+	static int capslocked;
 
-    if (kb == AG_KEY_CAPSLOCK)
-    {
-        if (updown)
-        {
-            capslocked = 1;
-            XTRACE("CAPS locked\n");
-        }
-        else
-        {
-            capslocked = 0;
-            XTRACE("CAPS unlocked\n");
-        }
-        updown = kEventKeyDown;
-        DoKeyBoardEvent(uc, kb, updown);
-        XTRACE("key %x - mod %x - unicode %lx - updown %x\n", kb, mod, uc, updown);
-        updown = kEventKeyUp;
-        goto event;
-    }
+	if (kb == AG_KEY_CAPSLOCK)
+	{
+		if (updown)
+		{
+			capslocked = 1;
+			XTRACE("CAPS locked\n");
+		}
+		else
+		{
+			capslocked = 0;
+			XTRACE("CAPS unlocked\n");
+		}
+		updown = kEventKeyDown;
+		DoKeyBoardEvent(uc, kb, updown);
+		XTRACE("key %x - mod %x - unicode %lx - updown %x\n", kb, mod, uc, updown);
+		updown = kEventKeyUp;
+		goto event;
+	}
 
-    // make the shift-alpha keys work
-    switch (kb) {
-    case AG_KEY_A - 0x20 ... AG_KEY_Z - 0x20:
-        kb += 0x20;
-        if (capslocked)
-        {
-            // fake a shift key
-            DoKeyBoardEvent(uc, AG_KEY_LSHIFT, updown);
-            XTRACE("faked a SHIFT key\n");
-        }
-        break;
-    default:
-        break;
-    }
+	// make the shift-alpha keys work
+	switch (kb) {
+	case AG_KEY_A - 0x20 ... AG_KEY_Z - 0x20:
+		kb += 0x20;
+		if (capslocked)
+		{
+			// fake a shift key
+			DoKeyBoardEvent(uc, AG_KEY_LSHIFT, updown);
+			XTRACE("faked a SHIFT key\n");
+		}
+		break;
+	default:
+		break;
+	}
 
-    // make the ctrl-alpha keys work
-    if (mod & (AG_KEYMOD_LCTRL | AG_KEYMOD_RCTRL))
-    {
-        switch (kb)
-        {
-        case AG_KEY_ASCII_START ... AG_KEY_ESCAPE:
-            kb += 0x60;
-            break;
-        default:
-            break;
-        }
-    }
+	// make the ctrl-alpha keys work
+	if (mod & (AG_KEYMOD_LCTRL | AG_KEYMOD_RCTRL))
+	{
+		switch (kb)
+		{
+		case AG_KEY_ASCII_START ... AG_KEY_ESCAPE:
+			kb += 0x60;
+			break;
+		default:
+			break;
+		}
+	}
 
 event:
-    // **** End of additions ****
+	// **** End of additions ****
 #endif
 
     DoKeyBoardEvent(uc, kb, updown);
-	//fprintf(stderr, "key %d - scancode %d - mod %d - unicode %ld - updown %i,\n", kb&0xf, sc&0xff, mod, uc, updown);
-    XTRACE("key %x - mod %x - unicode %lx - updown %x\n", kb, mod, uc, updown);
+	//fprintf(stderr, "key %d - mod %d - unicode %ld - updown %i,\n", kb&0xf, mod, uc, updown);
+	XTRACE("key %x - mod %x - unicode %lx - updown %x\n", kb, mod, uc, updown);
 }
 
 void ButtonDownUp(AG_Event *event)
@@ -1770,7 +1770,7 @@ void ButtonDownUp(AG_Event *event)
     DoButton(b, state);
 
 	//fprintf(stderr, "%s: Button %d, updown %i,\n", AGOBJECT(w)->name, b, state);
-    XTRACE("%s: Button %d, updown %i,\n", AGOBJECT(w)->name, b, state);
+	XTRACE("%s: Button %d, updown %i,\n", AGOBJECT(w)->name, b, state);
 }
 
 void LockTexture(AG_Event *event)
@@ -1785,9 +1785,8 @@ void WindowDetached(AG_Event *event)
     SystemState2 *SState = AG_PTR(1);
 
     AG_ThreadCancel(SState->emuThread);
-#ifdef ISOCPU
     AG_ThreadCancel(SState->cpuThread);
-#endif
+
 	SState->Pixels = NULL;
     SState->EmulationRunning = 0;
     
@@ -1843,7 +1842,7 @@ void DecorateWindow(SystemState2 *EmuState2)
 
     AG_Surface *flip = AG_SurfaceRGB(640, 480, 32, AG_SURFACE_PACKED /*| AG_SURFACE_MAPPED */, 0xFF, 0xFF00, 0xFF0000);
 
-    AG_Pixmap *fx = AG_PixmapFromSurface(win, AG_PIXMAP_EXPAND | AG_PIXMAP_RESCALE, flip);
+	AG_Pixmap *fx = AG_PixmapFromSurface(win, AG_PIXMAP_EXPAND | (CurrentConfig.Resize ? AG_PIXMAP_RESCALE : 0), flip);
     AG_PixmapSetSurface(fx, 0); // set surface to 1 but pixels to surface 0
     AG_BindInt(fx, "redrawfx", &redrawfx);
     AG_RedrawOnChange(fx, 1000/60, "redrawfx");

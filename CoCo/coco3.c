@@ -16,53 +16,44 @@ This file is part of VCC (Virtual Color Computer).
     along with VCC (Virtual Color Computer).  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "stdio.h"
+#include <stdio.h>
 #include <math.h>
 #include "defines.h"
 #include "tcc1014graphicsAGAR.h"
 #include "tcc1014registers.h"
 #include "mc6821.h"
-#include "hd6309.h"
-#include "mc6809.h"
 #include "pakinterface.h"
 #include "audio.h"
 #include "coco3.h"
 #include "throttle.h"
 #include "vcc.h"
 #include "cassette.h"
-#include "logger.h"
 #include "AGARInterface.h"
+#include "Wrap.h"
 
-//****************************************
-	static double SoundInterupt=0;
-	static double PicosToSoundSample=0;//SoundInterupt;
-	static double CyclesPerSecord=(COLORBURST/4)*(TARGETFRAMERATE/FRAMESPERSECORD);
-	static double LinesPerSecond= TARGETFRAMERATE * LINESPERSCREEN;
-	static double PicosPerLine = PICOSECOND / (TARGETFRAMERATE * LINESPERSCREEN);
-	static double CyclesPerLine = ((COLORBURST/4)*(TARGETFRAMERATE/FRAMESPERSECORD)) / (TARGETFRAMERATE * LINESPERSCREEN);
-	static double CycleDrift=0;
-	static double CyclesThisLine=0;
-	static unsigned int StateSwitch=0;
-	unsigned short SoundRate=0;
-//*****************************************************
+static double SoundInterrupt=0;
+static double NanosToSoundSample=0;//SoundInterrupt;
+static double NanosPerLine = NANOSECOND / (TARGETFRAMERATE * LINESPERSCREEN);
+static double CyclesPerLine = ((COLORBURST/4)*(TARGETFRAMERATE/FRAMESPERSECORD)) / (TARGETFRAMERATE * LINESPERSCREEN);
+static double CycleDrift=0;
+static unsigned int StateSwitch=0;
+static unsigned short SoundRate=0;
 
 #define AUDIO_BUF_LEN 16384
 #define CAS_BUF_LEN 8192
 
-static unsigned char HorzInteruptEnabled=0,VertInteruptEnabled=0;
+static unsigned char HorzInterruptEnabled=0,VertInterruptEnabled=0;
 static unsigned char TopBoarder=0,BottomBoarder=0;
 static unsigned char LinesperScreen;
-static unsigned char TimerInteruptEnabled=0;
+static unsigned char TimerInterruptEnabled=0;
 static int MasterTimer=0; 
 static unsigned short TimerClockRate=0;
-static int TimerCycleCount=0;
 static double MasterTickCounter=0,UnxlatedTickCounter=0,OldMaster=0;
-static double PicosThisLine=0;
 static unsigned char BlinkPhase=1;
 static unsigned int AudioBuffer[AUDIO_BUF_LEN];
 static unsigned char CassBuffer[CAS_BUF_LEN];
 static unsigned short AudioIndex=0;
-double PicosToInterupt=0;
+static double NanosToInterrupt=0;
 static int IntEnable=0;
 static int SndEnable=1;
 static int OverClock=1;
@@ -72,230 +63,110 @@ void CassOut(void);
 void CassIn(void);
 void (*AudioEvent)(void)=AudioOut;
 void SetMasterTickCounter(void);
-int CPUCycle(void);
+void CPUConfigSpeedInc(void);
+void CPUConfigSpeedDec(void);
 
-static unsigned long DC;
-static long LC;
+volatile int processing;
+static int FrameCounter;
+extern int gThrottle;
 
-#ifndef ISOCPU
-float RenderFrame (SystemState2 *RFState2, unsigned long DCnt)
-{
-	static unsigned short FrameCounter = 0;
-	//WriteLog("RF ", TOCONS);
-	//fprintf(stderr, ".");
-	DC = DCnt;
-	LC = 0;
-
-//********************************Start of frame Render*****************************************************
-	SetBlinkStateAGAR(BlinkPhase);
-	irq_fs(0);				//FS low to High transition start of display Boink needs this
-	for (RFState2->LineCounter=0;RFState2->LineCounter<13;RFState2->LineCounter++)		//Vertical Blanking 13 H lines 
-		CPUCycle();
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<4;RFState2->LineCounter++)		//4 non-Rendered top Boarder lines
-		CPUCycle();
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<(TopBoarder-4);RFState2->LineCounter++) 		
-	{
-		if (!(FrameCounter % RFState2->FrameSkip)) 
-		{
-			DrawTopBoarderAGAR(RFState2);
-		}
-		CPUCycle();
-	}
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<LinesperScreen;RFState2->LineCounter++)		//Active Display area		
-	{
-		CPUCycle();
-		if (!(FrameCounter % RFState2->FrameSkip))
-		{
-			UpdateScreen(RFState2);
-		}
-	} 
-	irq_fs(1);  //End of active display FS goes High to Low
-	if (VertInteruptEnabled)
-		GimeAssertVertInterupt();	
-	for (RFState2->LineCounter=0;RFState2->LineCounter < (BottomBoarder) ;RFState2->LineCounter++)	// Bottom boarder 
-	{
-		CPUCycle();
-		if (!(FrameCounter % RFState2->FrameSkip))
-		{
-			DrawBottomBoarderAGAR(RFState2);
-		}
-	}
-
-	if (!(FrameCounter % RFState2->FrameSkip))
-	{
-		UpdateAGAR(RFState2);
-		SetBoarderChangeAGAR(0);
-	}
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<6;RFState2->LineCounter++)		//Vertical Retrace 6 H lines
-		CPUCycle();
-
-	switch (SoundOutputMode)
-	{
-	case 0:
-		FlushAudioBufferSDL(AudioBuffer,AudioIndex<<2);
-		break;
-	case 1:
-		FlushCassetteBuffer(CassBuffer,AudioIndex);
-		break;
-	case 2:
-		LoadCassetteBuffer(CassBuffer);
-
-		break;
-	}
-	AudioIndex=0;
-
-	return(CalculateFPS());
-}
-#else
-static volatile int waitsync=1;
-static long   lPicosPerLine = PICOSECOND / (TARGETFRAMERATE * LINESPERSCREEN);
-
-float RenderFrame (SystemState2 *RFState2, unsigned long DCnt)
-{
-	long long frametime = 16666667;
-	static unsigned short FrameCounter = 0;
-	unsigned long long StartTime, EndTime, TargetTime;
-    static volatile long finetune=0;
-	//WriteLog("RF ", TOCONS);
-	//fprintf(stderr, ".");
-	DC = DCnt;
-	LC = 0;
-
-//********************************Start of frame Render*****************************************************
-	SetBlinkStateAGAR(BlinkPhase);
-	irq_fs(0);				//FS low to High transition start of display Boink needs this
-	waitsync = 0; // release the cpu
-
-	FrameCounter = (FrameCounter+1) % RFState2->FrameSkip;
-
-    StartTime=SDL_GetPerformanceCounter(); // used to calc frame time
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<13;RFState2->LineCounter++)		//Vertical Blanking 13 H lines 
-	{
-		TargetTime = SDL_GetPerformanceCounter() + lPicosPerLine - finetune;
-		EndTime = SDL_GetPerformanceCounter();
-		while(EndTime < TargetTime) { EndTime = SDL_GetPerformanceCounter(); }
-	}
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<4;RFState2->LineCounter++)		//4 non-Rendered top Boarder lines
-	{
-		TargetTime = SDL_GetPerformanceCounter() + lPicosPerLine - finetune;
-		EndTime = SDL_GetPerformanceCounter();
-		while(EndTime < TargetTime) { EndTime = SDL_GetPerformanceCounter(); }
-	}
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<(TopBoarder-4);RFState2->LineCounter++) 		// Top boarder
-	{
-		TargetTime = SDL_GetPerformanceCounter() + lPicosPerLine - finetune;
-		if (!FrameCounter) { DrawTopBoarderAGAR(RFState2); }
-		EndTime = SDL_GetPerformanceCounter();
-		while(EndTime < TargetTime) { EndTime = SDL_GetPerformanceCounter(); }
-	}
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<LinesperScreen;RFState2->LineCounter++)		//Active Display area		
-	{
-		TargetTime = SDL_GetPerformanceCounter() + lPicosPerLine - finetune;
-		if (!FrameCounter) { UpdateScreen(RFState2); }
-		EndTime = SDL_GetPerformanceCounter();
-		while(EndTime < TargetTime) { EndTime = SDL_GetPerformanceCounter(); }
-	} 
-
-	irq_fs(1);  //End of active display FS goes High to Low
-	if (VertInteruptEnabled)
-	{
-		GimeAssertVertInterupt();	
-	}
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter < (BottomBoarder) ;RFState2->LineCounter++)	// Bottom boarder 
-	{
-		TargetTime = SDL_GetPerformanceCounter() + lPicosPerLine - finetune;
-		if (!FrameCounter) { DrawBottomBoarderAGAR(RFState2); }
-		EndTime = SDL_GetPerformanceCounter();
-		while(EndTime < TargetTime) { EndTime = SDL_GetPerformanceCounter(); }
-	}
-
+typedef void (*DrawCallback)(SystemState2 *);
+static void DrawLine(SystemState2 *RFState2, DrawCallback callback, int n) {
 	if (!FrameCounter)
-	{
+		for (RFState2->LineCounter = 0; RFState2->LineCounter < n; RFState2->LineCounter++)
+			callback(RFState2);
+}
+
+float RenderFrame(SystemState2 *RFState2, unsigned long DCnt) {
+	if (gThrottle) {
+		vsync_wait();
+		static int inccount;
+		if (processing) CPUConfigSpeedDec();
+		else if (!(++inccount & 0xf)) CPUConfigSpeedInc();
+	}
+	while (processing) usleep(100);
+	//
+    SetBlinkStateAGAR(BlinkPhase);
+	irq_fs(0); // FS low to High transition start of display Boink needs this
+	render_signal(); // release the cpu
+	FrameCounter = (FrameCounter + 1) % RFState2->FrameSkip;
+	DrawLine(RFState2, DrawTopBoarderAGAR, TopBoarder - 4);
+	DrawLine(RFState2, UpdateScreen, LinesperScreen);
+	irq_fs(1); // End of active display FS goes High to Low
+	if (VertInterruptEnabled)
+		GimeAssertVertInterrupt();
+	DrawLine(RFState2, DrawBottomBoarderAGAR, BottomBoarder + 2);
+	if (!FrameCounter) {
 		UpdateAGAR(RFState2);
 		SetBoarderChangeAGAR(0);
 	}
-
-	for (RFState2->LineCounter=0;RFState2->LineCounter<6;RFState2->LineCounter++)		//Vertical Retrace 6 H lines
-	{
-		TargetTime = SDL_GetPerformanceCounter() + lPicosPerLine - finetune;
-		EndTime = SDL_GetPerformanceCounter();
-		while(EndTime < TargetTime) { EndTime = SDL_GetPerformanceCounter(); }
-	}
-
-	// frametime = EndTime - StartTime;
-	// if (frametime < 16666667) finetune--; else finetune++;
-	//fprintf(stderr, "<%lld:%d>", frametime, finetune);
-
-	switch (SoundOutputMode)
-	{
+	switch (SoundOutputMode) {
 	case 0:
-		FlushAudioBufferSDL(AudioBuffer,AudioIndex<<2);
+		FlushAudioBufferSDL(AudioBuffer,AudioIndex << 2);
 		break;
 	case 1:
 		FlushCassetteBuffer(CassBuffer,AudioIndex);
 		break;
 	case 2:
 		LoadCassetteBuffer(CassBuffer);
-
 		break;
 	}
-	AudioIndex=0;
-
-	float fps = CalculateFPS();
-
-	if (fps > 0.1)
-	{
-		finetune+=(60.0 - fps) * 10.0;
-	}
-
-	//fprintf(stderr, "fps %2.1f - ft %ld - i %d\n", fps, finetune, fineinc);
-
-	return(fps);
+	AudioIndex = 0;
+    int fps = CalculateFPS();
+    return FrameCounter ? 0 : fps;
 }
 
-void *CPUloop (void *p)
-{
-	SystemState2 *RFState2 = p;
-	long long cputime = 16666667;
-	unsigned long long StartTime, EndTime, TargetTime;
-	long timeavg, finetune=0;
-	short lc;
-
+void *CPUloop(void *RFState2) {
 	while (CPUExec == NULL) { AG_Delay(1); } // The Render loop resets the system and the CPU must wait for reset 1st time;
-
-	while(1)
-	{
-		while(waitsync) {} waitsync=1; // sync with RenderFrame()
-		timeavg = 0;
-		StartTime = SDL_GetPerformanceCounter();
+	while (((SystemState2 *)RFState2)->agwin->visible) {
+		render_wait();
+		processing = 1;
+		SetNatEmuStat(1 + MPUIsNative());
 		// total iterations = 13 blanking lines + 4 non boarder lines + TopBoarder-4 lines + Active display lines + Bottom boarder lines + 6 vertical retrace lines
 		// or TopBoarder + LinesPerScreen + Bottom Boarder + 19
-		for(lc=0 ; lc < TopBoarder+LinesperScreen+BottomBoarder+19 ; lc++)
-		{
-			TargetTime = SDL_GetPerformanceCounter() + lPicosPerLine - finetune;
-			CPUCycle();
-			EndTime = SDL_GetPerformanceCounter();
-			timeavg += TargetTime - EndTime;
-			while(EndTime < TargetTime) { EndTime = SDL_GetPerformanceCounter(); }
+		int NanosThisLine = NanosPerLine;
+		for (int linecount = TopBoarder + LinesperScreen + BottomBoarder + 19; linecount;) {
+			int sw = 0;
+			double duration = NanosThisLine;
+			if (duration > NanosToInterrupt && IntEnable) {
+				duration = NanosToInterrupt;
+				sw = 1;
+			}
+			if (duration > NanosToSoundSample && SndEnable) {
+				duration = NanosToSoundSample;
+				sw = 2;
+			}
+			int n = CycleDrift + (duration * CyclesPerLine * OverClock / NanosPerLine);
+			CycleDrift = n >= 1 ? CPUExec(n) : n;
+			switch (sw) {
+				default:
+					linecount--;
+					if (HorzInterruptEnabled)
+						GimeAssertHorzInterrupt();
+					irq_hs(ANY);
+					PakTimer();
+					NanosThisLine = NanosPerLine;
+					NanosToInterrupt -= duration;
+					NanosToSoundSample -= duration;
+					break;
+				case 1:
+					GimeAssertTimerInterrupt();
+					NanosThisLine -= duration;
+					NanosToInterrupt = MasterTickCounter;
+					NanosToSoundSample -= duration;
+					break;
+				case 2:
+					//AudioEvent();
+					NanosThisLine -= duration;
+					NanosToInterrupt -= duration;
+					NanosToSoundSample = SoundInterrupt;
+					break;
+			}
 		}
-		timeavg /= lc;
-		if (timeavg < 0) CPUConfigSpeedDec(); else if (timeavg > 0) CPUConfigSpeedInc();
-		cputime = EndTime - StartTime;
-		if (cputime < 16666667) finetune--; else finetune++;
-		//fprintf(stderr, "<%lld:%d>", cputime, finetune);
+		processing = 0;
 	}
-	return(RFState2);
+	return NULL;
 }
-#endif
 
 void SetClockSpeed(unsigned short Cycles)
 {
@@ -303,15 +174,15 @@ void SetClockSpeed(unsigned short Cycles)
 	return;
 }
 
-void SetHorzInteruptState(unsigned char State)
+void SetHorzInterruptState(unsigned char State)
 {
-	HorzInteruptEnabled= !!State;
+	HorzInterruptEnabled= !!State;
 	return;
 }
 
-void SetVertInteruptState(unsigned char State)
+void SetVertInterruptState(unsigned char State)
 {
-	VertInteruptEnabled= !!State;
+	VertInterruptEnabled= !!State;
 	return;
 }
 
@@ -328,166 +199,18 @@ void SelectCPUExec(SystemState2* EmuState)
 {
 	if(EmuState->CpuType == 1) // 6309
 	{
-		switch(EmuState->MouseType)
-		{
-			case 0: // for normal mouse
-				CPUExec = HD6309Exec;
-				//fprintf(stdout, "CPU Exec\n");
-				break;
-			
-			case 1: // for Hires mouse
-				CPUExec = HD6309ExecHiRes;
-				//fprintf(stdout, "CPU Exec Hi-Res\n");
-				break;
-
-			default:
-				break;
-		}
+		CPUExec = Execute;
 	}
 }
 
-int CPUCycle(void)	
-{
-	char Message[256];
-
-	//WriteLog(".", TOCONS);
-
-	if (HorzInteruptEnabled)
-		GimeAssertHorzInterupt();
-	irq_hs(ANY);
-	PakTimer();
-	PicosThisLine+=PicosPerLine;	
-	while (PicosThisLine>1)		
-	{
-		LC++;
-		StateSwitch=0;
-		if ((PicosToInterupt<=PicosThisLine) & IntEnable )	//Does this iteration need to Timer Interupt
-			StateSwitch=1;
-		if ((PicosToSoundSample<=PicosThisLine) & SndEnable)//Does it need to collect an Audio sample
-			StateSwitch+=2;
-		switch (StateSwitch)
-		{
-			case 0:		//No interupts this line
-				//WriteLog("0", TOCONS);
-				CyclesThisLine= CycleDrift + (PicosThisLine * CyclesPerLine * OverClock/PicosPerLine);
-				if (CyclesThisLine>=1)	//Avoid un-needed CPU engine calls
-					CycleDrift = CPUExec((int)floor(CyclesThisLine))+(CyclesThisLine- floor(CyclesThisLine));
-				else 
-					CycleDrift=CyclesThisLine;
-				PicosToInterupt-=PicosThisLine;
-				PicosToSoundSample-=PicosThisLine;
-				PicosThisLine=0;
-			break;
-
-			case 1:		//Only Interupting
-				//WriteLog("1", TOCONS);
-				PicosThisLine-=PicosToInterupt;
-				CyclesThisLine= CycleDrift + (PicosToInterupt * CyclesPerLine * OverClock/PicosPerLine);
-				if (CyclesThisLine>=1)
-					CycleDrift = CPUExec((int)floor(CyclesThisLine))+(CyclesThisLine- floor(CyclesThisLine));
-				else 
-					CycleDrift=CyclesThisLine;
-				GimeAssertTimerInterupt();
-				PicosToSoundSample-=PicosToInterupt;
-				PicosToInterupt=MasterTickCounter;
-			break;
-
-			case 2:		//Only Sampling
-				// WriteLog("2", TOCONS);
-				PicosThisLine-=PicosToSoundSample;
-				CyclesThisLine=CycleDrift +(PicosToSoundSample * CyclesPerLine * OverClock/PicosPerLine );
-				if (CyclesThisLine >= 1)
-				{
-					//sprintf(Message, "%d ", LC);
-					//WriteLog(Message, TOCONS);
-					if (DC == 23 && LC == 382)
-					{
-						//WriteLog("\nWe are here\n", TOCONS);
-					}
-					CycleDrift = CPUExec((int)floor(CyclesThisLine)) + (CyclesThisLine - floor(CyclesThisLine));
-				}
-				else 
-					CycleDrift=CyclesThisLine;
-				//WriteLog("B", TOCONS);
-				AudioEvent();
-				//WriteLog("C", TOCONS);
-				PicosToInterupt-=PicosToSoundSample;
-				PicosToSoundSample=SoundInterupt;
-			break;
-
-			case 3:		//Interupting and Sampling
-				//WriteLog("3", TOCONS);
-				if (PicosToSoundSample<PicosToInterupt)
-				{
-					PicosThisLine-=PicosToSoundSample;	
-					CyclesThisLine=CycleDrift +(PicosToSoundSample * CyclesPerLine * OverClock/PicosPerLine);
-					if (CyclesThisLine>=1)
-						CycleDrift = CPUExec((int)floor(CyclesThisLine))+(CyclesThisLine- floor(CyclesThisLine));
-					else 
-						CycleDrift=CyclesThisLine;
-					AudioEvent();
-					PicosToInterupt-=PicosToSoundSample;	
-					PicosToSoundSample=SoundInterupt;
-					PicosThisLine-=PicosToInterupt;
-
-					CyclesThisLine= CycleDrift +(PicosToInterupt * CyclesPerLine * OverClock/PicosPerLine);
-					if (CyclesThisLine>=1)
-						CycleDrift = CPUExec((int)floor(CyclesThisLine))+(CyclesThisLine- floor(CyclesThisLine));
-					else 
-						CycleDrift=CyclesThisLine;
-					GimeAssertTimerInterupt();
-					PicosToSoundSample-=PicosToInterupt;
-					PicosToInterupt=MasterTickCounter;
-					break;
-				}
-
-				if (PicosToSoundSample>PicosToInterupt)
-				{
-					PicosThisLine-=PicosToInterupt;
-					CyclesThisLine= CycleDrift +(PicosToInterupt * CyclesPerLine * OverClock/PicosPerLine);
-					if (CyclesThisLine>=1)
-						CycleDrift = CPUExec((int)floor(CyclesThisLine))+(CyclesThisLine- floor(CyclesThisLine));
-					else 
-						CycleDrift=CyclesThisLine;
-					GimeAssertTimerInterupt();		
-					PicosToSoundSample-=PicosToInterupt;
-					PicosToInterupt=MasterTickCounter;
-					PicosThisLine-=PicosToSoundSample;
-					CyclesThisLine=  CycleDrift +(PicosToSoundSample * CyclesPerLine * OverClock/PicosPerLine);	
-					if (CyclesThisLine>=1)
-						CycleDrift = CPUExec((int)floor(CyclesThisLine))+(CyclesThisLine- floor(CyclesThisLine));
-					else 
-						CycleDrift=CyclesThisLine;
-					AudioEvent();
-					PicosToInterupt-=PicosToSoundSample;
-					PicosToSoundSample=SoundInterupt;
-					break;
-				}
-					//They are the same (rare)
-			PicosThisLine-=PicosToInterupt;
-			CyclesThisLine=CycleDrift +(PicosToSoundSample * CyclesPerLine * OverClock/PicosPerLine );
-			if (CyclesThisLine>1)
-				CycleDrift = CPUExec((int)floor(CyclesThisLine))+(CyclesThisLine- floor(CyclesThisLine));
-			else 
-				CycleDrift=CyclesThisLine;
-			GimeAssertTimerInterupt();
-			AudioEvent();
-			PicosToInterupt=MasterTickCounter;
-			PicosToSoundSample=SoundInterupt;
-		}
-	}
-
-	return(0);
-}
-
-void SetTimerInteruptState(unsigned char State)
+void SetTimerInterruptState(unsigned char State)
 {
 	// printf("%d", (int)State); fflush(stdout);
-	TimerInteruptEnabled=State;
+	TimerInterruptEnabled=State;
 	return;
 }
 
-void SetInteruptTimer(unsigned short Timer)
+void SetInterruptTimer(unsigned short Timer)
 {
 	UnxlatedTickCounter=(Timer & 0xFFF);
 	SetMasterTickCounter();
@@ -503,7 +226,7 @@ void SetTimerClockRate (unsigned char Tmp)	//1= 279.265nS (1/ColorBurst)
 
 void SetMasterTickCounter(void)
 {
-	double Rate[2]={PICOSECOND/(TARGETFRAMERATE*LINESPERSCREEN),PICOSECOND/COLORBURST};
+	double Rate[2]={NANOSECOND/(TARGETFRAMERATE*LINESPERSCREEN),NANOSECOND/COLORBURST};
 
 	if (UnxlatedTickCounter==0)
 		MasterTickCounter=0;
@@ -513,7 +236,7 @@ void SetMasterTickCounter(void)
 	if (MasterTickCounter != OldMaster)  
 	{
 		OldMaster=MasterTickCounter;
-		PicosToInterupt=MasterTickCounter;
+		NanosToInterrupt=MasterTickCounter;
 	}
 
 	if (MasterTickCounter!=0)
@@ -526,20 +249,18 @@ void SetMasterTickCounter(void)
 
 void MiscReset(void)
 {
-	HorzInteruptEnabled=0;
-	VertInteruptEnabled=0;
-	TimerInteruptEnabled=0;
+	HorzInterruptEnabled=0;
+	VertInterruptEnabled=0;
+	TimerInterruptEnabled=0;
 	MasterTimer=0; 
 	TimerClockRate=0;
 	MasterTickCounter=0;
 	UnxlatedTickCounter=0;
 	OldMaster=0;
 //*************************
-	SoundInterupt=0;//PICOSECOND/44100;
-	PicosToSoundSample=SoundInterupt;
+	SoundInterrupt=0;
+	NanosToSoundSample=SoundInterrupt;
 	CycleDrift=0;
-	CyclesThisLine=0;
-	PicosThisLine=0;
 	IntEnable=0;
 	AudioIndex=0;
 	ResetAudioSDL();
@@ -550,7 +271,7 @@ unsigned short SetAudioRate (unsigned short Rate)
 {
 
 	SndEnable=1;
-	SoundInterupt=0;
+	SoundInterrupt=0;
 	CycleDrift=0;
 	AudioIndex=0;
 	if (Rate != 0)	//Force Mute or 44100Hz
@@ -560,8 +281,8 @@ unsigned short SetAudioRate (unsigned short Rate)
 		SndEnable=0;
 	else
 	{
-		SoundInterupt=PICOSECOND/Rate;
-		PicosToSoundSample=SoundInterupt;
+		SoundInterrupt=NANOSECOND/Rate;
+		NanosToSoundSample=SoundInterrupt;
 	}
 	SoundRate=Rate;
 	return(0);
@@ -571,7 +292,7 @@ void AudioOut(void)
 {
 	if (AudioIndex < AUDIO_BUF_LEN)
 	{
-		AudioBuffer[AudioIndex++]=GetDACSample();
+		AudioBuffer[AudioIndex++]=GetPSGSample();//GetDACSample();
 	}
 	return;
 }

@@ -25,6 +25,8 @@ This file is part of VCC (Virtual Color Computer).
 #include "tcc1014mmu.h"
 #include "logger.h"
 #include "config.h"
+#include "Wrap.h"
+
 unsigned char port_read(unsigned short addr)
 {
 	unsigned char port=0,temp=0;
@@ -159,13 +161,14 @@ if ( (port>=0x50) & (port <=0x5a))
 		case 0xBF:
 			temp=GimeRead(port);
 		break;
+		case 0xe0: temp = vsync_count;
+		break;
 		default:
 			temp=PackPortRead (port);
 		}
 	return(temp);
 }
 
-extern void DumpRegisters(void);
 static int debug = 0;
 
 void port_write(unsigned char data,unsigned short addr)
@@ -219,7 +222,7 @@ void port_write(unsigned char data,unsigned short addr)
 			break;
 
 		case 0x75:
-			DumpRegisters();
+//			DumpRegisters();
 			break;
 #endif
 		case 0xC0:
@@ -307,6 +310,8 @@ void port_write(unsigned char data,unsigned short addr)
 		case 0xBF:
 			GimeWrite(port,data);
 		break;
+		case 0xe0: PSGAdr(data); break;
+		case 0xe1: PSGData(data); break;
 		default:
 			PackPortWrite (port,data);
 	}

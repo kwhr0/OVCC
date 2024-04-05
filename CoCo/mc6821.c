@@ -105,7 +105,6 @@ Bit 0 CART FIRQ 0 = FIRQ disabled 1 = enabled
 #include <math.h>
 #include "defines.h"
 #include "mc6821.h"
-#include "hd6309.h"
 #include "keyboard.h"
 #include "tcc1014graphicsAGAR.h"
 #include "tcc1014registers.h"
@@ -114,8 +113,6 @@ Bit 0 CART FIRQ 0 = FIRQ disabled 1 = enabled
 #include "cassette.h"
 #include "logger.h"
 #include "resource.h"
-
-#include "xdebug.h"
 
 short int DACdischarging = 0;
 
@@ -135,7 +132,6 @@ void WritePrintMon(char *);
 static BOOL MonState=FALSE;
 
 void CaptureBit(unsigned char Sample);//static unsigned char CoutSample=0;
-//extern STRConfig CurrentConfig;
 // Shift Row Col
 unsigned char pia0_read(unsigned char port)
 {
@@ -354,7 +350,7 @@ void irq_hs(int phase)	//63.5 uS
 			return;
 		rega[1]=(rega[1] | 128);
 		if (rega[1] & 1)
-			CPUAssertInterupt(IRQ,1);
+			CPUAssertInterrupt(IRQ,1);
 	break;
 
 	case RISING:	//HS went Low to High
@@ -362,13 +358,13 @@ void irq_hs(int phase)	//63.5 uS
 		return;
 		rega[1]=(rega[1] | 128);
 		if (rega[1] & 1)
-			CPUAssertInterupt(IRQ,1);
+			CPUAssertInterrupt(IRQ,1);
 	break;
 
 	case ANY:
 		rega[1]=(rega[1] | 128);
 		if (rega[1] & 1)
-			CPUAssertInterupt(IRQ,1);
+			CPUAssertInterrupt(IRQ,1);
 	break;
 	} //END switch
 
@@ -390,8 +386,8 @@ void irq_fs(int phase)	//60HZ Vertical sync pulse 16.667 mS
 				if (rega[3] & 1)
 				{
 					//write(0, "v", 1);
-					CPUAssertInterupt(IRQ,1);
-				}
+					CPUAssertInterrupt(IRQ,1);
+				}	
 			}
 			return;
 		break;
@@ -403,7 +399,7 @@ void irq_fs(int phase)	//60HZ Vertical sync pulse 16.667 mS
 				if (rega[3] & 1)
 				{
 					//write(0, "^", 1);
-					CPUAssertInterupt(IRQ,1);
+					CPUAssertInterrupt(IRQ,1);
 				}
 			}
 			return;
@@ -417,12 +413,12 @@ void AssertCart(void)
 {
 	regb[3]=(regb[3] | 128);
 	if (regb[3] & 1)
-		CPUAssertInterupt(FIRQ,0);
+		CPUAssertInterrupt(FIRQ,0);
 	else
-		CPUDeAssertInterupt(FIRQ); //Kludge but working
+		CPUDeAssertInterrupt(FIRQ); //Kludge but working
 }
 
-void PiaReset()
+void PiaReset(void)
 {
 	// Clear the PIA registers
 	for (uint8_t index=0; index<4; index++)

@@ -5,12 +5,12 @@
 * 16/32 bit memory handling routines                                *
 *****************************************************************/
 
-unsigned short MemRead16(unsigned short addr)
+unsigned short MemRead16_c(unsigned short addr)
 {
 	return (MemRead8(addr)<<8 | MemRead8(addr+1));
 }
 
-void MemWrite16(unsigned short data,unsigned short addr)
+void MemWrite16_c(unsigned short data,unsigned short addr)
 {
 	MemWrite8( data >>8,addr);
 	MemWrite8( data & 0xFF,addr+1);

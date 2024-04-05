@@ -60,8 +60,7 @@ typedef enum keyboardlayout_e
 */
 typedef struct keytranslationentry_t
 {
-	unsigned short ScanCode1;
-	unsigned short ScanCode2;
+	unsigned short ScanCode;
 	unsigned char Row1;
 	unsigned char Col1;
 	unsigned char Row2;

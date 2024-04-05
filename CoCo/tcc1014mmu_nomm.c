@@ -22,13 +22,19 @@ This file is part of VCC (Virtual Color Computer).
 #include "string.h"
 #include "tcc1014mmu.h"
 #include "iobus.h"
-//#include "cc3rom.h"
 #include "config.h"
 #include "tcc1014graphicsAGAR.h"
 #include "pakinterface.h"
 #include "logger.h"
-#include "hd6309.h"
 #include "fileops.h"
+#include "Wrap.h"
+
+#include <assert.h>
+#ifdef DEBUG
+#define ASSERT(x)	assert(x)
+#else
+#define ASSERT(x)
+#endif
 
 static unsigned char *MemPages[1024];
 static unsigned short MemPageOffsets[1024];
@@ -37,10 +43,10 @@ static unsigned char *InternalRomBuffer=NULL;
 static unsigned char MmuTask=0;		// $FF91 bit 0
 static unsigned char MmuEnabled=0;	// $FF90 bit 6
 static unsigned char RamVectors=0;	// $FF90 bit 3
-static unsigned char MmuState=0;	// Composite variable handles MmuTask and MmuEnabled
 static unsigned char RomMap=0;		// $FF90 bit 1-0
 static unsigned char MapType=0;		// $FFDE/FFDF toggle Map type 0 = ram/rom
-static unsigned short MmuRegisters[4][8];	// $FFA0 - FFAF
+static unsigned char MmuRegisters[4][8];	// $FFA0 - FFAF
+static unsigned char *MmuCurReg;
 static unsigned int MemConfig[4]={0x20000,0x80000,0x200000,0x800000};
 static unsigned short RamMask[4]={15,63,255,1023};
 static unsigned char StateSwitch[4]={8,56,56,56};
@@ -49,6 +55,7 @@ static unsigned char VectorMaska[4]={12,60,60,60};
 static unsigned int VidMask[4]={0x1FFFF,0x7FFFF,0x1FFFFF,0x7FFFFF};
 static unsigned char CurrentRamConfig=1;
 static unsigned short MmuPrefix=0;
+static int vbase, vbase_l, vbase_h;
 
 void UpdateMmuArray(void);
 /*****************************************************************************************
@@ -62,6 +69,9 @@ unsigned char * MmuInit_sw(unsigned char RamConfig)
 	unsigned int Index1=0;
 	RamSize=MemConfig[RamConfig];
 	CurrentRamConfig=RamConfig;
+	vbase_h = VectorMask[CurrentRamConfig];
+	vbase = vbase_h << 13;
+	vbase_l = VectorMaska[CurrentRamConfig];
 	if (memory != NULL)
 		free(memory);
 
@@ -96,7 +106,7 @@ void MmuReset_sw(void)
 	MmuTask=0;
 	MmuEnabled=0;
 	RamVectors=0;
-	MmuState=0;
+	MmuCurReg = MmuRegisters[0];
 	RomMap=0;
 	MapType=0;
 	MmuPrefix=0;
@@ -145,16 +155,14 @@ void SetMapType_sw(unsigned char type)
 
 void Set_MmuTask_sw(unsigned char task)
 {
-	MmuTask=task;
-	MmuState= (!MmuEnabled)<<1 | MmuTask;
-	return;
+	MmuTask = task;
+	MmuCurReg = MmuRegisters[(!MmuEnabled) << 1 | MmuTask];
 }
 
 void Set_MmuEnabled_sw(unsigned char usingmmu)
 {
-	MmuEnabled=usingmmu;
-	MmuState= (!MmuEnabled)<<1 | MmuTask;
-	return;
+	MmuEnabled = usingmmu;
+	MmuCurReg = MmuRegisters[(!MmuEnabled) << 1 | MmuTask];
 }
  
 unsigned char * Getint_rom_pointer_sw(void)
@@ -210,48 +218,97 @@ void MmuWrite8_sw(unsigned char data, unsigned char bank, unsigned short address
 }
 
 // Coco3 MMU Code
-unsigned char MemRead8_sw(unsigned short address)
-{
-	if (address<0xFE00)
-	{
-		if (MemPageOffsets[MmuRegisters[MmuState][address >> 13]] == 1)
-			return(MemPages[MmuRegisters[MmuState][address >> 13]][address & 0x1FFF]);
-		return(PackMem8Read(MemPageOffsets[MmuRegisters[MmuState][address >> 13]] + (address & 0x1FFF)));
+unsigned char MemRead8_sw(unsigned short address) {
+	if (address < 0xfe00) {
+read1:;
+		int page = MmuCurReg[address >> 13], base = MemPageOffsets[page], ofs = address & 0x1fff;
+		return base == 1 ? MemPages[page][ofs] : PackMem8Read(base + ofs);
 	}
-	if (address>0xFEFF)
-		return (port_read(address));
-	if (RamVectors)	//Address must be $FE00 - $FEFF
-		return(memory[(0x2000 * VectorMask[CurrentRamConfig]) | (address & 0x1FFF)]);
-	if (MemPageOffsets[MmuRegisters[MmuState][address >> 13]] == 1)
-		return(MemPages[MmuRegisters[MmuState][address >> 13]][address & 0x1FFF]);
-	return(PackMem8Read(MemPageOffsets[MmuRegisters[MmuState][address >> 13]] + (address & 0x1FFF)));
+	if (address >= 0xff00)
+		return port_read(address);
+	if (RamVectors)	// Address must be $FE00 - $FEFF
+		return memory[vbase | (address & 0x1fff)];
+	goto read1;
 }
 
-void MemWrite8_sw(unsigned char data, unsigned short address)
-{
-	//	char Message[256]="";
-	//	if ((address>=0xC000) & (address<=0xE000))
-	//	{
-	//		sprintf(Message,"Writing %i to ROM Address %x\n",data,address);
-	//		WriteLog(Message,TOCONS);
-	//	}
-	if (address < 0xFE00)
-	{
-		if (MapType || (MmuRegisters[MmuState][address >> 13] < VectorMaska[CurrentRamConfig]) || (MmuRegisters[MmuState][address >> 13] > VectorMask[CurrentRamConfig]))
-			MemPages[MmuRegisters[MmuState][address >> 13]][address & 0x1FFF] = data;
+uint16_t MemRead16_sw(uint16_t address) {
+	if (address < 0xfe00) {
+		ASSERT(address != 0xfdff);
+read1:;
+		int page = MmuCurReg[address >> 13], base = MemPageOffsets[page], ofs = address & 0x1fff;
+		if (ofs == 0x1fff) {
+			uint8_t d = base == 1 ? MemPages[page][0x1fff] : PackMem8Read(base + 0x1fff);
+			page = MmuCurReg[(address + 1) >> 13];
+			base = MemPageOffsets[page];
+			return d << 8 | (base == 1 ? MemPages[page][0] : PackMem8Read(base));
+		}
+		else if (base == 1) return __builtin_bswap16(*(uint16_t *)&MemPages[page][ofs]);
+		else {
+			uint8_t d = PackMem8Read(base + ofs);
+			return d << 8 | PackMem8Read(base + ofs + 1);
+		}
+	}
+	if (address >= 0xff00) {
+		ASSERT(address != 0xffff);
+		uint8_t d = port_read(address);
+		return d << 8 | port_read(address + 1);
+	}
+	if (RamVectors)	{ // Address must be $FE00 - $FEFF
+		uint8_t d = memory[vbase | (address & 0x1fff)];
+		return d << 8 | (address != 0xfeff ? memory[vbase | (address + 1 & 0x1fff)] : port_read(0xff00));
+	}
+	goto read1;
+}
+
+void MemWrite8_sw(unsigned char data, unsigned short address) {
+	if (address < 0xfe00) {
+write1:;
+		int page = MmuCurReg[address >> 13];
+		if (MapType || page < vbase_l || page > vbase_h)
+			MemPages[page][address & 0x1fff] = data;
 		return;
 	}
-	if (address > 0xFEFF)
-	{
+	if (address >= 0xff00) {
 		port_write(data, address);
 		return;
 	}
-	if (RamVectors)	//Address must be $FE00 - $FEFF
-		memory[(0x2000 * VectorMask[CurrentRamConfig]) | (address & 0x1FFF)] = data;
-	else
-		if (MapType || (MmuRegisters[MmuState][address >> 13] < VectorMaska[CurrentRamConfig]) || (MmuRegisters[MmuState][address >> 13] > VectorMask[CurrentRamConfig]))
-			MemPages[MmuRegisters[MmuState][address >> 13]][address & 0x1FFF] = data;
-	return;
+	if (RamVectors)	{ // Address must be $FE00 - $FEFF
+		memory[vbase | (address & 0x1fff)] = data;
+		return;
+	}
+	goto write1;
+}
+
+void MemWrite16_sw(unsigned short data, unsigned short address) {
+	if (address < 0xfe00) {
+		ASSERT(address != 0xfdff);
+write1:;
+		int page = MmuCurReg[address >> 13], ofs = address & 0x1fff;
+		if (ofs == 0x1fff) {
+			if (MapType || page < vbase_l || page > vbase_h)
+				MemPages[page][0x1fff] = data >> 8;
+			page = MmuCurReg[(address + 1) >> 13];
+			if (MapType || page < vbase_l || page > vbase_h)
+				MemPages[page][0] = data;
+			return;
+		}
+		else if (MapType || page < vbase_l || page > vbase_h)
+			*(uint16_t *)&MemPages[page][ofs] = __builtin_bswap16(data);
+		return;
+	}
+	if (address >= 0xff00) {
+		ASSERT(address != 0xffff);
+		port_write(data >> 8, address);
+		port_write(data, address + 1);
+		return;
+	}
+	if (RamVectors)	{ // Address must be $FE00 - $FEFF
+		ASSERT(address != 0xfeff);
+		memory[vbase | (address & 0x1fff)] = data >> 8;
+		memory[vbase | (address + 1 & 0x1fff)] = data;
+		return;
+	}
+	goto write1;
 }
 
 void SetDistoRamBank_sw(unsigned char data)
@@ -350,18 +407,6 @@ void MmuRomShare(unsigned short romsize, unsigned char *rom)
 	return;
 }
 
-// void dumpMem(UINT16 addr, UINT16 len)
-// {
-// 	UINT16 i;
-// 	fprintf(stderr, "Dump mem %x task %d maptype %d rommap %d", MemPages[MmuRegisters[MmuState][addr >> 13]][addr & 0x1FFF], MmuTask, MapType, RomMap);
-// 	for(i = 0 ; i < len ; i++)
-// 	{
-// 		if ((i % 16) == 0) fprintf(stderr, "\n%08x  ", (UINT32)addr+i);
-// 		fprintf(stderr, "%02x ", (int)MemRead8(i));
-// 	}
-// 	fprintf(stderr, "\n");
-// }
-
 #ifdef __MINGW32__
 PUINT8 GetPakExtMem()
 {
@@ -369,7 +414,7 @@ PUINT8 GetPakExtMem()
 }
 #endif
 
-void SetSWMmu()
+void SetSWMmu(void)
 {
 	MmuInit=MmuInit_sw;
 	MmuReset=MmuReset_sw;
@@ -383,8 +428,10 @@ void SetSWMmu()
 	CopyRom=CopyRom_sw;
 	MmuRead8=MmuRead8_sw;
 	MmuWrite8=MmuWrite8_sw;
-	MemRead8=MemRead8_sw;
-	MemWrite8=MemWrite8_sw;
+	MemRead8 = MemRead8_sw;
+	MemWrite8 = MemWrite8_sw;
+	MemRead16 = MemRead16_sw;
+	MemWrite16 = MemWrite16_sw;
 	SetDistoRamBank=SetDistoRamBank_sw;
 	SetMMUStat(0);
 }

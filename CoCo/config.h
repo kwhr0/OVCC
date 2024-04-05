@@ -59,6 +59,8 @@ typedef struct  {
 	char			PathtoExe[MAX_PATH];
 	unsigned short	dummyMenuPadMax;
 } STRConfig;
-	
+
+extern STRConfig CurrentConfig;
+
 #endif
 

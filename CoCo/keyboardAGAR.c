@@ -88,7 +88,7 @@ unsigned char ComparatorSetByDischarge = 0;
 // keyboard
 //
 
-#define KBTABLE_ENTRY_COUNT 128	///< key translation table maximum size, (arbitrary) most of the layouts are < 80 entries
+#define KBTABLE_ENTRY_COUNT 160	///< key translation table maximum size, (arbitrary) most of the layouts are < 80 entries
 #define KEY_DOWN	1
 #define KEY_UP		0
 
@@ -99,7 +99,7 @@ static int ScanTable[512];
 static unsigned char RolloverTable[8];	// CoCo 'keys' for emulator
 
 /** run-time key translation table - convert key up/down messages to 'rollover' codes */
-static keytranslationentry_t KeyTransTable[KBTABLE_ENTRY_COUNT];	// run-time keyboard layout table (key(s) to keys(s) translation)
+static keytranslationentry_t *KeyTransTable;	// run-time keyboard layout table (key(s) to keys(s) translation)
 
 /*****************************************************************************/
 /*****************************************************************************/
@@ -195,9 +195,9 @@ unsigned char vccKeyboardGetScanAGAR(unsigned char Col)
 		static unsigned char IrqFlag = 0;
 		if ((ret_val & 0x7F) != 0x7F)
 		{
-			if ((IrqFlag == 0) & GimeGetKeyboardInteruptState())
+			if ((IrqFlag == 0) & GimeGetKeyboardInterruptState())
 			{
-				GimeAssertKeyboardInterupt();
+				GimeAssertKeyboardInterrupt();
 				IrqFlag = 1;
 			}
 		}
@@ -209,10 +209,6 @@ unsigned char vccKeyboardGetScanAGAR(unsigned char Col)
 	#endif
 
 	//if (ret_val != 0xFF) fprintf(stderr, "<%2x>", ret_val);
-	if (ret_val != 0xFF)
-	{
-		//XTRACE("Key <%2X>\n", ret_val);
-	}
 	return (ret_val);
 }
 
@@ -221,11 +217,7 @@ unsigned char vccKeyboardGetScanAGAR(unsigned char Col)
 */
 static void _vccKeyboardUpdateRolloverTable()
 {
-	int				Index;
-	unsigned char	LockOut = 0;
-
-	//fprintf(stderr, "X");
-	// clear the rollover table
+	int Index;
 	for (Index = 0; Index < 8; Index++)
 	{
 		RolloverTable[Index] = 0;
@@ -234,64 +226,15 @@ static void _vccKeyboardUpdateRolloverTable()
 	// set rollover table based on ScanTable key status
 	for (Index = 0; Index<KBTABLE_ENTRY_COUNT; Index++)
 	{
-		// stop at last entry
-		if (  (KeyTransTable[Index].ScanCode1 == 0)
-			& (KeyTransTable[Index].ScanCode2 == 0)
-			)
+		if (!KeyTransTable[Index].ScanCode) break;
+		if (ScanTable[KeyTransTable[Index].ScanCode] == KEY_DOWN)
 		{
-			break;
-		}
-		
-		if ( LockOut != KeyTransTable[Index].ScanCode1 )
-		{
-			// Single input key 
-			if (   (KeyTransTable[Index].ScanCode1 != 0)
-				&& (KeyTransTable[Index].ScanCode2 == 0)
-				)
-			{
-				// check if key pressed
-				if (ScanTable[KeyTransTable[Index].ScanCode1] == KEY_DOWN)
-				{
-					int col;
-					
-					col = KeyTransTable[Index].Col1;
-					assert(col >=0 && col <8);
-					RolloverTable[col] |= KeyTransTable[Index].Row1;
-					
-					col = KeyTransTable[Index].Col2;
-					assert(col >= 0 && col <8);
-					RolloverTable[col] |= KeyTransTable[Index].Row2;
-
-					//fprintf(stderr, "*");
-				}
-			}
-
-			// Double Input Key
-			if (   (KeyTransTable[Index].ScanCode1 != 0)
-				&& (KeyTransTable[Index].ScanCode2 != 0)
-				)
-			{
-				// check if both keys pressed
-				if (   (ScanTable[KeyTransTable[Index].ScanCode1] == KEY_DOWN)
-					&& (ScanTable[KeyTransTable[Index].ScanCode2] == KEY_DOWN)
-					)
-				{
-					int col;
-
-					col = KeyTransTable[Index].Col1;
-					assert(col >=0 && col <8);
-					RolloverTable[col] |= KeyTransTable[Index].Row1;
-					
-					col = KeyTransTable[Index].Col2;
-					assert(col >= 0 && col <8);
-					RolloverTable[col] |= KeyTransTable[Index].Row2;
-					
-					// always SHIFT
-					LockOut = KeyTransTable[Index].ScanCode1;
-
-					break;
-				}
-			}
+			int col = KeyTransTable[Index].Col1;
+			assert(col >=0 && col <8);
+			RolloverTable[col] |= KeyTransTable[Index].Row1;
+			col = KeyTransTable[Index].Col2;
+			assert(col >= 0 && col <8);
+			RolloverTable[col] |= KeyTransTable[Index].Row2;
 		}
 	}
 }
@@ -304,314 +247,50 @@ static void _vccKeyboardUpdateRolloverTable()
 
 	@param key Windows virtual key code (VK_XXXX - not used)
 	@param ScanCode keyboard scan code (DIK_XXXX - DirectInput)
-	@param Status Key status - kEventKeyDown/kEventKeyUp
+	@param keyState Key status - kEventKeyDown/kEventKeyUp
 */
 void vccKeyboardHandleKeySDL(unsigned short key, unsigned short ScanCode, unsigned short keyState)
 {
-	XTRACE("Key : %c (%3d / 0x%02X)  Scan : %d / 0x%02X  State : %d\n",
-	       (key >= 0x20 && key <= 0x7f) ? key : ' ', key, key, ScanCode, ScanCode, keyState);
-
-	// check for shift key
-	// Left and right shift generate different scan codes
-	if (ScanCode == AG_KEY_RSHIFT)
-	{
-		ScanCode = AG_KEY_LSHIFT;
-	}
-#ifdef DARWIN
-	// CTRL key - right -> left
-	if (ScanCode == AG_KEY_RCTRL)
-	{
-		ScanCode = AG_KEY_LCTRL;
-	}
-#endif
-#if 0 // TODO: ALT?
-	// ALT key - right -> left
-	if (ScanCode == AG_KEY_RALT)
-	{
-		ScanCode = AG_KEY_LALT;
-	}
-#endif
-
 	switch (keyState)
 	{
 		default:
 			// internal error
-			XTRACE("keyState error\n");
 		break;
 
 		// Key Down
 		case kEventKeyDown:
-			XTRACE("Key %02X down\n", ScanCode);
 			if (  (LeftSDL.UseMouse == JOYSTICK_KEYBOARD)
 				| (RightSDL.UseMouse == JOYSTICK_KEYBOARD)
 				)
 			{
-				XTRACE("Mouse\n");
 				ScanCode = SetMouseStatusSDL(ScanCode, 1);
 			}
-
-			// track key is down
 			ScanTable[ScanCode] = KEY_DOWN;
-
 			_vccKeyboardUpdateRolloverTable();
-
-			if ( GimeGetKeyboardInteruptState() )
+			if ( GimeGetKeyboardInterruptState() )
 			{
-				GimeAssertKeyboardInterupt();
+				GimeAssertKeyboardInterrupt();
 			}
 		break;
 
 		// Key Up
 		case kEventKeyUp:
-			XTRACE("Key %02X up\n", ScanCode);
 			if (  (LeftSDL.UseMouse == JOYSTICK_KEYBOARD)
 				| (RightSDL.UseMouse == JOYSTICK_KEYBOARD)
 				)
 			{
-				XTRACE("Mouse\n");
 				ScanCode = SetMouseStatusSDL(ScanCode, 0);
 			}
-
-			// reset key (released)
 			ScanTable[ScanCode] = KEY_UP;
-
-			// TODO: verify this is accurate emulation
-			// Clean out rollover table on shift release
-			if ( ScanCode == AG_KEY_LSHIFT )
-			{
-				XTRACE("Clearing table\n");
-				for (int Index = 0; Index < KBTABLE_ENTRY_COUNT; Index++)
-				{
-					ScanTable[Index] = KEY_UP;
-				}
-			}
-
 			_vccKeyboardUpdateRolloverTable();
 		break;
 	}
 }
 
-/*****************************************************************************/
-/**
-	Key translation table compare function for sorting (with qsort)
-*/
-static int keyTransCompare(const void * e1, const void * e2)
-{
-	keytranslationentry_t *	entry1 = (keytranslationentry_t *)e1;
-	keytranslationentry_t *	entry2 = (keytranslationentry_t *)e2;
-	int						result = 0;
 
-	// ascending
-	// elem1 - elem2
-
-	// empty listing push to end
-	if (   entry1->ScanCode1 == 0
-		&& entry1->ScanCode2 == 0
-		&& entry2->ScanCode1 != 0
-		)
-	{
-		return 1;
-	}
-	else
-	if (   entry2->ScanCode1 == 0
-		&& entry2->ScanCode2 == 0
-		&& entry1->ScanCode1 != 0
-		)
-	{
-		return -1;
-	}
-	else
-	// push shift/alt/control by themselves to the end
-	if (   entry1->ScanCode2 == 0
-		&& (   entry1->ScanCode1 == AG_KEY_LSHIFT
-		    || entry1->ScanCode1 == AG_KEY_LALT
-		    || entry1->ScanCode1 == AG_KEY_LCTRL
-		   )
-		)
-	{
-		result = 1;
-	}
-	else
-	// push shift/alt/control by themselves to the end
-	if (   entry2->ScanCode2 == 0
-		&& (   entry2->ScanCode1 == AG_KEY_LSHIFT
-		    || entry2->ScanCode1 == AG_KEY_LALT
-		    || entry2->ScanCode1 == AG_KEY_LCTRL
-			)
-		)
-	{
-		result = -1;
-	}
-	else
-	// move double key combos in front of single ones
-	if (   entry1->ScanCode2 == 0
-		&& entry2->ScanCode2 != 0
-		)
-	{
-		result = 1;
-	}
-	else
-	// move double key combos in front of single ones
-	if (   entry2->ScanCode2 == 0
-		&& entry1->ScanCode2 != 0
-		)
-	{
-		result = -1;
-	}
-	else
-	{
-		result = entry1->ScanCode1 - entry2->ScanCode1;
-
-		if (result == 0)
-		{
-			result = entry1->Row1 - entry2->Row1;
-		}
-
-		if (result == 0)
-		{
-			result = entry1->Col1 - entry2->Col1;
-		}
-
-		if (result == 0)
-		{
-			result = entry1->Row2 - entry2->Row2;
-		}
-
-		if (result == 0)
-		{
-			result = entry1->Col2 - entry2->Col2;
-		}
-	}
-
-	return result;
-}
-
-/*****************************************************************************/
-/**
-	Rebuilds the run-time keyboard translation lookup table based on the
-	current keyboard layout.
-
-	The entries are sorted.  Any SHIFT + [char] entries need to be placed first
-*/
 void vccKeyboardBuildRuntimeTableAGAR(keyboardlayout_e keyBoardLayout)
 {
-	int Index1 = 0;
-	int Index2 = 0;
-	keytranslationentry_t *		keyLayoutTable = NULL;
-	keytranslationentry_t		keyTransEntry;
-
-	assert(keyBoardLayout >= 0 && keyBoardLayout < kKBLayoutCount);
-
-	switch (keyBoardLayout)
-	{
-		case kKBLayoutCoCo:
-			keyLayoutTable = keyTranslationsCoCoAGAR;
-		break;
-
-		case kKBLayoutNatural:
-			keyLayoutTable = keyTranslationsNaturalAGAR;
-			break;
-
-		case kKBLayoutCompact:
-			keyLayoutTable = keyTranslationsCompactAGAR;
-			break;
-
-		//case kKBLayoutCustom:
-		//	keyLayoutTable = keyTranslationsCustom;
-		//	break;
-
-		default:
-			assert(0 && "unknown keyboard layout");
-		break;
-	}
-
-	//XTRACE("Building run-time key table for layout # : %d - %s\n", keyBoardLayout, k_keyboardLayoutNames[keyBoardLayout]);
-
-	// copy the selected keyboard layout to the run-time table
-	memset(KeyTransTable, 0, sizeof(KeyTransTable));
-	Index2 = 0;
-	for (Index1 = 0; ; Index1++)
-	{
-		memcpy(&keyTransEntry, &keyLayoutTable[Index1], sizeof(keytranslationentry_t));
-
-		//
-		// Change entries to what the code expects
-		//
-		// Make sure ScanCode1 is never 0
-		// If the key combo uses SHIFT, put it in ScanCode1
-		// Completely clear unused entries (ScanCode1+2 are 0)
-		//
-
-		//
-		// swaps ScanCode1 with ScanCode2 if ScanCode2 == DIK_LSHIFT
-		//
-		if ( keyTransEntry.ScanCode2 == AG_KEY_LSHIFT )
-		{
-			keyTransEntry.ScanCode2 = keyTransEntry.ScanCode1;
-			keyTransEntry.ScanCode1 = AG_KEY_LSHIFT;
-		}
-
-		//
-		// swaps ScanCode1 with ScanCode2 if ScanCode1 is zero
-		//
-		if (  (keyTransEntry.ScanCode1 == 0)
-			& (keyTransEntry.ScanCode2 != 0)
-			)
-		{
-			keyTransEntry.ScanCode1 = keyTransEntry.ScanCode2;
-			keyTransEntry.ScanCode2 = 0;
-		}
-
-		// check for terminating entry
-		if (   keyTransEntry.ScanCode1 == 0
-			&& keyTransEntry.ScanCode2 == 0
-			)
-		{
-			break;
-		}
-
-		memcpy(&KeyTransTable[Index2++], &keyTransEntry,sizeof(keytranslationentry_t));
-
-		assert(Index2 <= KBTABLE_ENTRY_COUNT && "keyboard layout table is longer than we can handle");
-	}
-
-	//
-	// Sort the key translation table
-	//
-	// Since the table is searched from beginning to end each
-	// time a key is pressed, we want them to be in the correct 
-	// order.
-	//
-	qsort(KeyTransTable, KBTABLE_ENTRY_COUNT, sizeof(keytranslationentry_t), keyTransCompare);
-
-	#ifdef _DEBUG
-	//
-	// Debug dump the table
-	//
-	for (Index1 = 0; Index1 < KBTABLE_ENTRY_COUNT; Index1++)
-	{
-		// check for null entry
-		if (   KeyTransTable[Index1].ScanCode1 == 0
-			&& KeyTransTable[Index1].ScanCode2 == 0
-			)
-		{
-			// done
-			break;
-		}
-
-		XTRACE("Key: %3d - 0x%02X (%3d) 0x%02X (%3d) - %2d %2d  %2d %2d\n",
-			Index1, 
-			KeyTransTable[Index1].ScanCode1,
-			KeyTransTable[Index1].ScanCode1,
-			KeyTransTable[Index1].ScanCode2,
-			KeyTransTable[Index1].ScanCode2,
-			KeyTransTable[Index1].Row1,
-			KeyTransTable[Index1].Col1,
-			KeyTransTable[Index1].Row2,
-			KeyTransTable[Index1].Col2
-		);
-	}
-	#endif
+	KeyTransTable = keyTranslationsNaturalAGAR;
 }
 
 /*****************************************************************************/
@@ -628,13 +307,13 @@ void joystickSDL(unsigned short x,unsigned short y)
 	switch (LeftSDL.HiRes)
 	{
 		case 0: // Regular joystick mouse
-			x /= 10;
-			y /= 7.5;
+            x = 64 * (x - 6) / 640;
+            y = 64 * (y - 40) / 400;
 			if (x>63) x=63;
 			if (y>63) y=63;
 			break;
 
-		case 1:  // Hi-res joystick mouse
+		case 1:  // Hi-res joystick mouse こちらだとgshellでカーソルが動かない
 			y *= 1.3;
 			if (x>639) x=639;
 			if (y>639) y=639;

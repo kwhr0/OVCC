@@ -26,7 +26,7 @@ This file is part of VCC (Virtual Color Computer).
 #include "throttle.h"
 
 static unsigned char InfoBand=1;
-static unsigned char Resizeable=1;
+static unsigned char Resizable=1;
 static unsigned char ForceAspect=1;
 static unsigned int Color=0;
 
@@ -35,19 +35,18 @@ void DisplayFlip2(SystemState2 *);
 
 bool CreateAGARWindow(SystemState2 *CWState)
 {
-	char message[256]="";
 
-	// Initialize AGAR
+    // Initialize AGAR
 
-    if (AG_InitCore(NULL, 0) == -1 || AG_InitGraphics(NULL) == -1)
+	if (AG_InitCore(NULL, 0) == -1 || AG_InitGraphics(NULL) == -1)
     {
         fprintf(stderr, "Init failed: %s\n", AG_GetError());
         return FALSE;
     }
 
-    CWState->agwin = AG_WindowNew(AG_WINDOW_MAIN);
+	CWState->agwin = AG_WindowNew(AG_WINDOW_MAIN | (Resizable ? 0 : AG_WINDOW_NORESIZE));
     AG_WindowSetCaption(CWState->agwin, "OVCC 1.6.1");
-    AG_WindowSetGeometryAligned(CWState->agwin, AG_WINDOW_ALIGNMENT_NONE, 646, 548);
+    AG_WindowSetGeometryAligned(CWState->agwin, AG_WINDOW_ALIGNMENT_NONE, 646, 540);
     AG_WindowSetCloseAction(CWState->agwin, AG_WINDOW_DETACH);
 
 	return TRUE;
@@ -105,8 +104,8 @@ unsigned char SetInfoBandAGAR(unsigned char Tmp)
 unsigned char SetResizeAGAR(unsigned char Tmp)
 {
 	if (Tmp!=QUERY)
-		Resizeable=Tmp;
-	return(Resizeable);
+		Resizable=Tmp;
+	return(Resizable);
 }
 
 unsigned char SetAspectAGAR(unsigned char Tmp)

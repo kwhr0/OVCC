@@ -36,7 +36,6 @@ This file is part of VCC (Virtual Color Computer).
 #include "cassette.h"
 #include "AGARInterface.h"
 #include "coco3.h"
-
 //#include "logger.h"
 #include <assert.h>
 
@@ -155,7 +154,6 @@ void LoadConfig(SystemState2 *LCState)
 	UpdateConfig();
 	RefreshJoystickStatus();
 	SoundInitSDL(SoundCards[CurrentConfig.SndOutDev].sdlID, CurrentConfig.AudioRate);
-	InsertModule (CurrentConfig.ModulePath);	// Should this be here?
 	LCState->MouseType = LeftSDL.HiRes | RightSDL.HiRes; //If either mouse is Hires we must support Hires
 	//fprintf(stdout, "Mouse Type %d\n", LCState->MouseType);
 	if (!AG_FileExists(IniFilePath))
@@ -228,7 +226,7 @@ unsigned char WriteIniFile(void)
 unsigned char SaveCurrentConfigToFile(char *newfilename)
 {
 	DuplicatePrivateProfile(IniFilePath, newfilename);
-	WriteNamedIniFile(newfilename);
+	return WriteNamedIniFile(newfilename);
 }
 
 void UpdateOnBoot(char *modname)
@@ -424,7 +422,7 @@ void CPUConfigSpeedInc(void)
 	if (EmuState2.DoubleSpeedFlag == 0) return;
 	if (EmuState2.DoubleSpeedMultiplyer >= TempConfig.CPUMultiplyer) return;
 	EmuState2.DoubleSpeedMultiplyer += 1;
-	EmuState2.CPUCurrentSpeed = EmuState2.DoubleSpeedMultiplyer * 0.894;
+	EmuState2.CPUCurrentSpeed = EmuState2.DoubleSpeedMultiplyer * BASE_CLOCK;
 	SetClockSpeed(EmuState2.DoubleSpeedMultiplyer * EmuState2.TurboSpeedFlag);
 	return;
 }
@@ -434,7 +432,7 @@ void CPUConfigSpeedDec(void)
 	if (EmuState2.DoubleSpeedFlag == 0) return;
 	if (EmuState2.DoubleSpeedMultiplyer <= 2) return;
 	EmuState2.DoubleSpeedMultiplyer -= 1;
-	EmuState2.CPUCurrentSpeed = EmuState2.DoubleSpeedMultiplyer * 0.894;
+	EmuState2.CPUCurrentSpeed = EmuState2.DoubleSpeedMultiplyer * BASE_CLOCK;
 	SetClockSpeed(EmuState2.DoubleSpeedMultiplyer * EmuState2.TurboSpeedFlag);	
 	return ;
 }

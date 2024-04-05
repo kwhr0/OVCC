@@ -84,7 +84,7 @@ void CommandDone(void);
 FILE* OpenKeyboardDevice(int *ErrorNumber);
 int CloseKeyboardDevice();
 extern unsigned char PhysicalDriveA,PhysicalDriveB;
-bool FormatTrack (FILE *, u_int8_t, u_int8_t, u_int8_t);
+void FormatTrack (FILE *, u_int8_t, u_int8_t, u_int8_t);
 // bool CmdFormat (HANDLE , PFD_FORMAT_PARAMS , ULONG );
 /**********************************************************/
 static unsigned char StepTimesMS[4]={6,12,20,30};
@@ -100,7 +100,7 @@ static unsigned char Side=0;
 static unsigned char CurrentCommand=IDLE,CurrentDisk=NONE,LastDisk=NONE;
 static unsigned char MotorOn=0;
 static unsigned char KBLeds=0;
-static unsigned char InteruptEnable=0;
+static unsigned char InterruptEnable=0;
 static unsigned char HaltEnable=0;
 static unsigned char HeadLoad=0;
 static unsigned char TrackVerify=0;
@@ -222,7 +222,7 @@ void DecodeControlReg(unsigned char Tmp)
 	MotorOn=0;
 	CurrentDisk=NONE;
 	Side=0;
-	InteruptEnable=0;
+	InterruptEnable=0;
 	HaltEnable=0;
 
 	if (Tmp & CTRL_DRIVE0)
@@ -262,8 +262,8 @@ void DecodeControlReg(unsigned char Tmp)
 	if (LastDisk != CurrentDisk)	//If we switch from reading one Physical disk to another we need to invalidate the cache
 		DirtyDisk=1;
 	LastDisk=CurrentDisk;
-	if (Tmp & CTRL_DENSITY)	//Strange, Density and Interupt enable flag
-		InteruptEnable=1;
+	if (Tmp & CTRL_DENSITY)	//Strange, Density and Interrupt enable flag
+		InterruptEnable=1;
 	if (Tmp & CTRL_HALT_FLAG)
 		HaltEnable=1;
 	InputBuffer.LedFlags=KBLeds ;
@@ -303,7 +303,7 @@ void DiskStatus(char *Status)
 	if (MotorOn==1) 
 		sprintf(Status,"FD-502:Drv:%1.1i %s Trk:%2.2i Sec:%2.2i Hd:%1.1i",CurrentDisk,ImageFormat[Drive[CurrentDisk].ImageType],Drive[CurrentDisk].HeadPosition,SectorReg,Side);
 	else
-		sprintf(Status,"FD-502:Idle");
+		sprintf(Status,"FD-502:IDLE");
 	return;
 }
 
@@ -688,7 +688,7 @@ long WriteTrack (	unsigned char Side,		//0 or 1
 		case RAW:
 			DirtyDisk=1;
 			//DeviceIoControl(Drive[CurrentDisk].FileHandle , IOCTL_FDCMD_SEEK, &Track, sizeof(Track), NULL, 0, &dwRet, NULL);
-			return(FormatTrack (Drive[CurrentDisk].FileHandle , Track , Side, WriteBuffer[100] )); //KLUDGE!
+			FormatTrack (Drive[CurrentDisk].FileHandle , Track , Side, WriteBuffer[100]); //KLUDGE!
 
 		break;
 
@@ -891,7 +891,7 @@ void PingFdc(void)
 			}
 		break;
 
-		case FORCEINTERUPT: 
+		case FORCEINTERRUPT: 
 		break;
 
 		case READTRACK:
@@ -1005,14 +1005,14 @@ void DispatchCommand(unsigned char Tmp)
 
 			break;
 
-		case FORCEINTERUPT: 
+		case FORCEINTERRUPT: 
 			CurrentCommand=IDLE;
 			TransferBufferSize=0;
 			StatusReg=READY;
 			ExecTimeWaiter=1;
 			if ((Tmp & 15) != 0)
-				CPUAssertInterupt(NMI,0);
-//			WriteLog("FORCEINTERUPT",0);
+				CPUAssertInterrupt(NMI,0);
+//			WriteLog("FORCEINTERRUPT",0);
 			break;
 
 		case READTRACK:
@@ -1413,8 +1413,8 @@ long GetSectorInfo (SectorInfo *Sector,unsigned char *TempBuffer)
 
 void CommandDone(void)
 {
-	if (InteruptEnable)
-		CPUAssertInterupt(NMI,0);
+	if (InterruptEnable)
+		CPUAssertInterrupt(NMI,0);
 		TransferBufferSize=0;
 		CurrentCommand=IDLE;
 }
@@ -1508,7 +1508,7 @@ bool SetDataRate (FILE *h_, u_int8_t bDataRate_)
     return 0;//!!DeviceIoControl(h_,IOCTL_FD_SET_DATA_RATE,&bDataRate_,sizeof(bDataRate_),NULL,0,&dwRet,NULL);
 }
 
-bool FormatTrack (FILE *h_, u_int8_t cyl_, u_int8_t head_, u_int8_t Fill)
+void FormatTrack (FILE *h_, u_int8_t cyl_, u_int8_t head_, u_int8_t Fill)
 {
 //     BYTE abFormat[sizeof(FD_FORMAT_PARAMS) + sizeof(FD_ID_HEADER)*DISK_SECTORS];
 

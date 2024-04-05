@@ -42,7 +42,7 @@ static char moduleName[13] = { "FD502 26-133" };
 extern DiskInfo Drive[5];
 typedef unsigned char (*MEMREAD8)(unsigned short);
 typedef void (*MEMWRITE8)(unsigned char,unsigned short);
-typedef void (*ASSERTINTERUPT) (unsigned char,unsigned char);
+typedef void (*ASSERTINTERRUPT) (unsigned char,unsigned char);
 typedef void (*DMAMEMPOINTERS) ( MEMREAD8,MEMWRITE8);
 typedef void (*DYNAMICMENUCALLBACK)( char *,int, int);
 static unsigned char ExternalRom[EXTROMSIZE];
@@ -168,7 +168,7 @@ void ADDCALL ModuleConfig(unsigned char func)
 	return;
 }
 
-unsigned char ADDCALL ModuleReset(void)
+void ADDCALL ModuleReset(void)
 {
 	if (PakRomAddr != NULL) 
 	{
@@ -192,8 +192,8 @@ void ADDCALL SetIniPath(INIman *InimanP)
 	return;
 }
 
-// This captures the Fuction transfer point for the CPU assert interupt 
-void ADDCALL AssertInterupt(ASSERTINTERUPT Dummy)
+// This captures the Fuction transfer point for the CPU assert interrupt
+void ADDCALL AssertInterrupt(ASSERTINTERRUPT Dummy)
 {
 	AssertInt=Dummy;
 	return;
@@ -256,9 +256,9 @@ void ADDCALL ModuleStatus(char *MyStatus)
 	return ;
 }
 
-void CPUAssertInterupt(unsigned char Interupt,unsigned char Latencey)
+void CPUAssertInterrupt(unsigned char Interrupt,unsigned char Latencey)
 {
-	AssertInt(Interupt,Latencey);
+	AssertInt(Interrupt,Latencey);
 	return;
 }
 

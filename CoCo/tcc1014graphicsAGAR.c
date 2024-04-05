@@ -98,22 +98,22 @@ void UpdateScreen (SystemState2 *USState32)
 	static char Carry1=0,Carry2=0;
 	static char Pcolor=0;
 	unsigned int *szSurface32=USState32->PTRsurface32;
-	unsigned short y=USState32->LineCounter;
+	unsigned short y=USState32->LineCounter, vc=VertCenter;
 	long Xpitch=USState32->SurfacePitch;
 	Carry1=1;
 	Pcolor=0;
 
-	if (USState32->Pixels == NULL) return;
+	if (USState32->Pixels == NULL || y + vc >= 240) return;
 
 	if ( (HorzCenter!=0) & (BoarderChange>0) )
 		for (unsigned short x=0;x<HorzCenter;x++)
 		{
-			szSurface32[x +(((y+VertCenter)*2)*Xpitch)]=BoarderColor32;
+			szSurface32[x +(((y+vc)*2)*Xpitch)]=BoarderColor32;
 			if (!USState32->ScanLines)
-				szSurface32[x +(((y+VertCenter)*2+1)*Xpitch)]=BoarderColor32;
-			szSurface32[x + (PixelsperLine * (Stretch+1)) +HorzCenter+(((y+VertCenter)*2)*Xpitch)]=BoarderColor32;
+				szSurface32[x +(((y+vc)*2+1)*Xpitch)]=BoarderColor32;
+			szSurface32[x + (PixelsperLine * (Stretch+1)) +HorzCenter+(((y+vc)*2)*Xpitch)]=BoarderColor32;
 			if (!USState32->ScanLines)
-				szSurface32[x + (PixelsperLine * (Stretch+1))+HorzCenter+(((y+VertCenter)*2+1)*Xpitch)]=BoarderColor32;
+				szSurface32[x + (PixelsperLine * (Stretch+1))+HorzCenter+(((y+vc)*2+1)*Xpitch)]=BoarderColor32;
 		}
 
 	if (LinesperRow < 13)
@@ -125,7 +125,7 @@ void UpdateScreen (SystemState2 *USState32)
 		TagY=y;
 	}
 	Start=StartofVidram+(TagY/LinesperRow)*(VPitch*ExtendedText);
-	YStride=(((y+VertCenter)*2)*Xpitch)+(HorzCenter*1)-1;
+	YStride=(((y+vc)*2)*Xpitch)+(HorzCenter*1)-1;
 
 	switch (MasterMode) // (GraphicsMode <<7) | (CompatMode<<6)  | ((Bpp & 3)<<4) | (Stretch & 15);
 	{
@@ -3206,13 +3206,13 @@ void DrawBottomBoarderAGAR(SystemState2 *DTState)
 {
 	if (BoarderChange==0)
 		return;	
-	unsigned short x;
-
+	unsigned short x, y = DTState->LineCounter + LinesperScreen + VertCenter;
+	if (y >= 240) return;
 	for (x=0;x<DTState->WindowSize.x;x++)
 	{
-		DTState->PTRsurface32[x + (2*(DTState->LineCounter+LinesperScreen+VertCenter) *DTState->SurfacePitch) ]=BoarderColor32;
+		DTState->PTRsurface32[x + (2 * y * DTState->SurfacePitch)] = BoarderColor32;
 		if (!DTState->ScanLines)
-			DTState->PTRsurface32[x + DTState->SurfacePitch+(2*(DTState->LineCounter+LinesperScreen+VertCenter) *DTState->SurfacePitch) ]=BoarderColor32;
+			DTState->PTRsurface32[x + DTState->SurfacePitch + (2 * y * DTState->SurfacePitch)] = BoarderColor32;
 	}
 	return;
 }

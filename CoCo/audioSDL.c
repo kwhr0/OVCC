@@ -23,6 +23,7 @@ This file is part of VCC (Virtual Color Computer).
 #include "coco3.h"
 #include "audio.h"
 #include "logger.h"
+#include "Wrap.h"
 
 #define MAXCARDS	12
 //PlayBack
@@ -37,14 +38,18 @@ static unsigned short CurrentRate=0;
 static unsigned char AudioPause=0;
 static SndCardList *Cards=NULL;
 
-void dumpbuffer(unsigned char *Abuffer, int length)
-{
-	size_t byteswritten;
-	AG_DataSource *af = AG_OpenFile("audio.raw", "a+");
-
-	AG_WriteP(af, Abuffer, (size_t)length, &byteswritten);
-
-	AG_CloseFile(af);
+static void audioCallback(void *userData, uint8_t *stream, int len) {
+	PSGSamples((int16_t *)stream, len >> 2);
+	int16_t lmin = INT16_MAX, lmax = INT16_MIN, rmin = INT16_MAX, rmax = INT16_MIN;
+	for (int16_t *p = (int16_t *)stream, *lim = p + (len >> 1); p < lim; p += 2) {
+		int16_t l = p[0], r = p[1];
+		if (lmin > l) lmin = l;
+		if (lmax < l) lmax = l;
+		if (rmin > r) rmin = r;
+		if (rmax < r) rmax = r;
+	}
+	UpdateSoundBar(UINT16_MAX * sqrtf((float)(lmax - lmin) / UINT16_MAX),
+				   UINT16_MAX * sqrtf((float)(rmax - rmin) / UINT16_MAX));
 }
 
 int SoundInitSDL (int devID, unsigned short Rate)
@@ -80,11 +85,11 @@ int SoundInitSDL (int devID, unsigned short Rate)
 
 	if (Rate)
 	{
-		audioSpec.callback = NULL;
+		audioSpec.callback = audioCallback;
 		audioSpec.channels = 2;
 		audioSpec.freq = BitRate;
 		audioSpec.format = AUDIO_S16LSB;
-		audioSpec.samples = 4096;
+		audioSpec.samples = 256;
 
 		audioDev = SDL_OpenAudioDevice(Cards[devID].CardName, 0, &audioSpec, &actualAudioSpec, 0);
 		//audioDev = SDL_OpenAudioDevice(Cards[devID].CardName, 0, NULL, NULL, 0);
@@ -92,7 +97,7 @@ int SoundInitSDL (int devID, unsigned short Rate)
 		if (audioDev == 0)
 			return(1);
 
-		//SDL_PauseAudioDevice(audioDev, 0);
+		SDL_PauseAudioDevice(audioDev, 0);
 
 		InitPassed=1;
 		AudioPause=0;
@@ -104,6 +109,7 @@ int SoundInitSDL (int devID, unsigned short Rate)
 
 void FlushAudioBufferSDL(unsigned int *Abuffer,unsigned short Length)
 {
+/*
 	unsigned short LeftAverage=0,RightAverage=0,Index=0;
 	unsigned char Flag=0;
 	LeftAverage=Abuffer[0]>>16;
@@ -116,8 +122,7 @@ void FlushAudioBufferSDL(unsigned int *Abuffer,unsigned short Length)
 	SDL_QueueAudio(audioDev, (void*)Abuffer, (Uint32)Length);
 	SDL_PauseAudioDevice(audioDev, 0);
 	Uint32 as = SDL_GetQueuedAudioSize(audioDev);
-
-	//dumpbuffer(Abuffer, Length);
+*/
 }
 
 int GetSoundCardListSDL (SndCardList *List)

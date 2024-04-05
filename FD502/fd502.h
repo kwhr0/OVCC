@@ -24,7 +24,7 @@ This file is part of VCC (Virtual Color Computer).
 #define ADDCALL
 #endif
 
-void CPUAssertInterupt(unsigned char,unsigned char);
+void CPUAssertInterrupt(unsigned char,unsigned char);
 #define	HEAD 0
 #define SLAVE 1
 #define STANDALONE 2

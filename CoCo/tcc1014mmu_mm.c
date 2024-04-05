@@ -29,10 +29,10 @@ This file is part of OVCC (Open Virtual Color Computer).
 #include "tcc1014graphicsAGAR.h"
 #include "pakinterface.h"
 #include "logger.h"
-#include "hd6309.h"
 #include "fileops.h"
 #include <sys/mman.h>
 #include <fcntl.h>
+#include "Wrap.h"
 
 #define handle_error(msg) do { perror(msg) ; exit(EXIT_FAILURE);} while (0)
 
@@ -602,7 +602,7 @@ static void SetMmuPrefix(UINT8  data)
 	return;
 }
 
-void SetHWMmu()
+void SetHWMmu(void)
 {
 	MmuInit=MmuInit_hw;
 	MmuReset=MmuReset_hw;
@@ -616,8 +616,10 @@ void SetHWMmu()
 	CopyRom=CopyRom_hw;
 	MmuRead8=MmuRead8_hw;
 	MmuWrite8=MmuWrite8_hw;
-	MemRead8=MemRead8_hw;
-	MemWrite8=MemWrite8_hw;
+	MemRead8 = MemRead8_hw;
+	MemWrite8 = MemWrite8_hw;
+	MemRead16 = MemRead16_c;
+	MemWrite16 = MemWrite16_c;
 	SetDistoRamBank=SetDistoRamBank_hw;
 	SetMMUStat(1);
 }

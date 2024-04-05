@@ -21,14 +21,14 @@ This file is part of VCC (Virtual Color Computer).
 //unsigned short RenderFrame (unsigned char);
 void SetClockSpeed(unsigned short Cycles);
 void SetLinesperScreen(unsigned char Lines);
-void SetHorzInteruptState(unsigned char);
-void SetVertInteruptState(unsigned char);
+void SetHorzInterruptState(unsigned char);
+void SetVertInterruptState(unsigned char);
 unsigned char SetSndOutMode(unsigned char);
 float RenderFrame (SystemState2 *, unsigned long);
 
-void SetTimerInteruptState(unsigned char);
+void SetTimerInterruptState(unsigned char);
 void SetTimerClockRate (unsigned char);	
-void SetInteruptTimer(unsigned short);
+void SetInterruptTimer(unsigned short);
 void MiscReset(void);
 unsigned short SetAudioRate (unsigned short);
 

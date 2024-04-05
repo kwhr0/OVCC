@@ -62,7 +62,7 @@ typedef void (*CONFIGIT)(unsigned char);
 typedef void (*HEARTBEAT) (void);
 typedef unsigned char (*PACKPORTREAD)(unsigned char);
 typedef void (*PACKPORTWRITE)(unsigned char,unsigned char);
-typedef void (*ASSERTINTERUPT) (unsigned char,unsigned char);
+typedef void (*ASSERTINTERRUPT) (unsigned char,unsigned char);
 typedef unsigned char (*MEMREAD8)(unsigned short);
 typedef unsigned char (*MMUREAD8)(unsigned char, unsigned short);
 typedef void (*SETCART)(unsigned char);
@@ -72,7 +72,7 @@ typedef void (*MODULESTATUS)(char *);
 typedef void (*DMAMEMPOINTERS)(MEMREAD8, MEMWRITE8);
 typedef void (*MMUROMSHARE)(unsigned char *);
 typedef void (*SETCARTPOINTER)(SETCART);
-typedef void (*SETINTERUPTCALLPOINTER) (ASSERTINTERUPT);
+typedef void (*SETINTERRUPTCALLPOINTER) (ASSERTINTERRUPT);
 typedef unsigned short (*MODULEAUDIOSAMPLE)(void);
 typedef void (*MODULERESET)(void);
 typedef void (*SETINIPATH)(INIman *);
@@ -80,7 +80,7 @@ typedef void (*SETINI)(INIman *);
 
 static void (*GetModuleName)(char *, AG_MenuItem *)=NULL;
 static void (*ConfigModule)(unsigned char)=NULL;
-static void (*SetInteruptCallPointer)(ASSERTINTERUPT)=NULL;
+static void (*SetInterruptCallPointer)(ASSERTINTERRUPT)=NULL;
 static void (*DmaMemPointer)(MEMREAD8, MEMWRITE8)=NULL;
 static void (*MmuMemPointer)(MMUREAD8, MMUWRITE8)=NULL;
 static void (*PakRomShare)(unsigned char *)=NULL;
@@ -132,9 +132,9 @@ void ResetBus(void)
 	{
 		MmuMemPointer(*MmuRead8, *MmuWrite8);
 	}
-	if (SetInteruptCallPointer != NULL)
+	if (SetInterruptCallPointer != NULL)
 	{
-		SetInteruptCallPointer(CPUAssertInterupt);
+		SetInterruptCallPointer(CPUAssertInterrupt);
 	}
 	if (PakRomShare != NULL)
 	{
@@ -260,7 +260,7 @@ int InsertModule (char *ModulePath)
 		ConfigModule = SDL_LoadFunction(hinstLib, "ModuleConfig");
 		PakPortWrite = SDL_LoadFunction(hinstLib, "PackPortWrite");
 		PakPortRead = SDL_LoadFunction(hinstLib, "PackPortRead");
-		SetInteruptCallPointer = SDL_LoadFunction(hinstLib, "AssertInterupt");
+		SetInterruptCallPointer = SDL_LoadFunction(hinstLib, "AssertInterrupt");
 		DmaMemPointer = SDL_LoadFunction(hinstLib, "MemPointers");
 		MmuMemPointer = SDL_LoadFunction(hinstLib, "MmuPointers");
 		HeartBeat = SDL_LoadFunction(hinstLib, "HeartBeat");
@@ -305,10 +305,10 @@ int InsertModule (char *ModulePath)
 			ModualParms|=4;
 			strcat(String,"Is IO readable\n");
 		}
-		if (SetInteruptCallPointer!=NULL)
+		if (SetInterruptCallPointer!=NULL)
 		{
 			ModualParms|=8;
-			strcat(String,"Generates Interupts\n");
+			strcat(String,"Generates Interrupts\n");
 		}
 		if (DmaMemPointer!=NULL)
 		{
@@ -439,7 +439,7 @@ void UnloadDll(short int config)
 	ConfigModule=NULL;
 	PakPortWrite=NULL;
 	PakPortRead=NULL;
-	SetInteruptCallPointer=NULL;
+	SetInterruptCallPointer=NULL;
 	DmaMemPointer=NULL;
 	MmuMemPointer=NULL;
 	HeartBeat=NULL;
@@ -465,8 +465,8 @@ void GetCurrentModule(char *DefaultModule)
 
 void UpdateBusPointer(void)
 {
-	if (SetInteruptCallPointer!=NULL)
-		SetInteruptCallPointer(CPUAssertInterupt);
+	if (SetInterruptCallPointer!=NULL)
+		SetInterruptCallPointer(CPUAssertInterrupt);
 	return;
 }
 

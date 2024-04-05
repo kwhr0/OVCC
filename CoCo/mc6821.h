@@ -25,7 +25,7 @@ void pia1_write(unsigned char data,unsigned char port);
 
 void ClosePrintFile(void);
 void SetSerialParams(unsigned char);
-void SetMonState(BOOL);
+void SetMonState(int);
 unsigned char VDG_Mode(void);
 void kb_tap(unsigned int,unsigned int,unsigned int);
 void irq_hs(int);

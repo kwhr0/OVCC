@@ -29,8 +29,6 @@ This file is part of VCC (Virtual Color Computer).
 #include "tcc1014mmu.h"
 #include "tcc1014graphicsAGAR.h"
 #include "tcc1014registers.h"
-#include "hd6309.h"
-#include "mc6809.h"
 #include "mc6821.h"
 #include "keyboard.h"
 #include "coco3.h"
@@ -41,6 +39,8 @@ This file is part of VCC (Virtual Color Computer).
 #include "throttle.h"
 #include "logger.h"
 #include "AGARInterface.h"
+#include "Wrap.h"
+#include <CoreVideo/CoreVideo.h>
 
 SystemState2 EmuState2;
 static bool DialogOpen=false;
@@ -61,8 +61,8 @@ void *EmuLoop(void *);
 void (*CPUInit)(void)=NULL;
 int  (*CPUExec)( int)=NULL;
 void (*CPUReset)(void)=NULL;
-void (*CPUAssertInterupt)(UINT8, UINT8)=NULL;
-void (*CPUDeAssertInterupt)(UINT8)=NULL;
+void (*CPUAssertInterrupt)(UINT8, UINT8)=NULL;
+void (*CPUDeAssertInterrupt)(UINT8)=NULL;
 void (*CPUForcePC)(UINT16)=NULL;
 PUINT8 (*MmuInit)(UINT8)=NULL;
 void (*MmuReset)(void)=NULL;
@@ -78,6 +78,8 @@ UINT8 (*MmuRead8)(UINT8, UINT16)=NULL;
 void (*MmuWrite8)(UINT8, UINT8, UINT16)=NULL;
 UINT8 (*MemRead8)(UINT16)=NULL;
 void (*MemWrite8)(UINT8, UINT16)=NULL;
+UINT16 (*MemRead16)(UINT16)=NULL;
+void (*MemWrite16)(UINT16, UINT16)=NULL;
 void (*SetDistoRamBank)(UINT8)=NULL;
 
 // Message handlers
@@ -109,10 +111,13 @@ void PadDummyCartMenus(void);
 
 /*--------------------------------------------------------------------------*/
 
+static CVReturn MyDisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp *now, const CVTimeStamp *outputTime, CVOptionFlags flagsIn, CVOptionFlags *flagsOut, void *context) {
+	vsync_signal();
+	return kCVReturnSuccess;
+}
 
 int main(int argc, char **argv)
 {
-	char cwd[260];
 	char name[260];
 
 #ifdef _DEBUG
@@ -126,13 +131,19 @@ int main(int argc, char **argv)
 # endif
 #endif
 
-	if (getcwd(cwd, sizeof(cwd)) != NULL) {
+// macOSではgetcwd()が"/"を返すことがあったので、argv[0]から取得する
+	/*if (getcwd(cwd, sizeof(cwd)) != NULL) {
 		GlobalExecFolder = cwd;
 	} 
-	else
+	else*/
 	{
 		GlobalExecFolder = argv[0];
 		PathRemoveFileSpec(GlobalExecFolder);
+		// OVCC.appがあるディレクトリ
+		PathRemoveFileSpec(GlobalExecFolder);
+		PathRemoveFileSpec(GlobalExecFolder);
+		PathRemoveFileSpec(GlobalExecFolder);
+		chdir(GlobalExecFolder);
 	}
 
 	GlobalFullName = argv[0];
@@ -167,6 +178,8 @@ int main(int argc, char **argv)
 	EmuState2.WindowSize.x=640;
 	EmuState2.WindowSize.y=480;
 	
+	LoadConfig(&EmuState2);			//Loads the default config file Vcc.ini from the exec directory
+
 	if (!CreateAGARWindow(&EmuState2))
 	{
 		fprintf(stderr,"Can't create AGAR Window\n");
@@ -182,10 +195,11 @@ int main(int argc, char **argv)
 
 	ClsAGAR(0, &EmuState2);
 
-	LoadConfig(&EmuState2);			//Loads the default config file Vcc.ini from the exec directory
+	InsertModule (CurrentConfig.ModulePath);
+
 	PadDummyCartMenus();
 	EmuState2.ResetPending=2;
-	SetClockSpeed(1);	//Default clock speed .89 MHZ	
+    SetClockSpeed(1); // Default clock speed BASE_CLOCK [MHz]
 	BinaryRunning = true;
 	EmuState2.EmulationRunning=AutoStart;
 
@@ -195,7 +209,7 @@ int main(int argc, char **argv)
 		EmuState2.EmulationRunning=1;
 	}
 
-	if (AG_ThreadTryCreate(&threadID, EmuLoop, NULL) != 0)
+	if (AG_ThreadTryCreate(&threadID, EmuLoop, &EmuState2) != 0)
 	{
 		fprintf(stderr, "Can't Start main Emulation Thread!\n");
 		return(0);
@@ -203,20 +217,22 @@ int main(int argc, char **argv)
 
 	EmuState2.emuThread = threadID;
 
-#ifdef ISOCPU
 	extern void *CPUloop(void *);
 	if (AG_ThreadTryCreate(&threadID, CPUloop, &EmuState2) != 0)
 	{
 		fprintf(stderr, "Can't Start CPU Thread!\n");
 		return(0);
 	}
-#endif
 
 	EmuState2.cpuThread = threadID;
 
+	CVDisplayLinkRef displayLink;
+	CVDisplayLinkCreateWithActiveCGDisplays(&displayLink);
+	CVDisplayLinkSetOutputCallback(displayLink, MyDisplayLinkCallback, nil);
+	CVDisplayLinkStart(displayLink);
 
     AG_EventLoop();
-	
+
 	EmuState2.Pixels = NULL;
 	EmuState2.EmulationRunning = 0;
 
@@ -237,7 +253,7 @@ int main(int argc, char **argv)
 
 /* Call backs for Events from GUI System */
 
-void DoHardResetF9()
+void DoHardResetF9(void)
 {
     extern void SetStatusBarText(const char *, SystemState2 *);
 
@@ -248,7 +264,7 @@ void DoHardResetF9()
 		SetStatusBarText("", &EmuState2);
 }
 
-void DoSoftReset()
+void DoSoftReset(void)
 {
 	if ( EmuState2.EmulationRunning )
 	{
@@ -256,23 +272,23 @@ void DoSoftReset()
 	}
 }
 
-void ToggleMonitorType()
+void ToggleMonitorType(void)
 {
 	SetMonitorTypeAGAR(!SetMonitorTypeAGAR(QUERY));
 }
 
-void ToggleThrottleSpeed()
+void ToggleThrottleSpeed(void)
 {
 	SetSpeedThrottle(!SetSpeedThrottle(QUERY));
 }
 
-void ToggleScreenStatus()
+void ToggleScreenStatus(void)
 {
 	SetInfoBandAGAR(!SetInfoBandAGAR(QUERY));
     InvalidateBoarderAGAR();
 }
 
-void ToggleFullScreen()
+void ToggleFullScreen(void)
 {
 	if (FlagEmuStop == TH_RUNNING)
 	{
@@ -299,7 +315,7 @@ void SetCPUMultiplyerFlag (unsigned char double_speed)
 {
 	unsigned short clockspeed = 1;
 	EmuState2.DoubleSpeedFlag=double_speed;
-	EmuState2.CPUCurrentSpeed= .894;
+	EmuState2.CPUCurrentSpeed= BASE_CLOCK;
 	if (EmuState2.DoubleSpeedFlag)
 		clockspeed =  EmuState2.DoubleSpeedMultiplyer * EmuState2.TurboSpeedFlag;
 	if (EmuState2.DoubleSpeedFlag)
@@ -314,7 +330,7 @@ void SetTurboMode(unsigned char data)
 	EmuState2.TurboSpeedFlag=(data&1)+1;
 	if (EmuState2.DoubleSpeedFlag)
 		clockspeed = EmuState2.DoubleSpeedMultiplyer * EmuState2.TurboSpeedFlag;
-	EmuState2.CPUCurrentSpeed= .894;
+	EmuState2.CPUCurrentSpeed= BASE_CLOCK;
 	if (EmuState2.DoubleSpeedFlag)
 		EmuState2.CPUCurrentSpeed*=(EmuState2.DoubleSpeedMultiplyer*EmuState2.TurboSpeedFlag);
 	SetClockSpeed(clockspeed); 
@@ -332,20 +348,12 @@ unsigned char SetCPUMultiplyer(unsigned short Multiplyer)
 }
 
 void DoHardReset(SystemState2* const HRState)
-{	
-	//fprintf(stderr, "DoHardReset %d\n", HRState->MmuType);
-	
-	switch (HRState->MmuType)
-	{	case 0: // Software MMU
-			SetSWMmu();
-			break;
-#ifndef __MINGW32__
-		case 1: // Hardware MMU
-			SetHWMmu();
-			break;
+{
+#ifdef __aarch64__
+	SetSWMmu();
+#else
+	SetHWMmu();
 #endif
-	}
-
 	HRState->RamBuffer=MmuInit(HRState->RamSize);	//Alocate RAM/ROM & copy ROM Images from source
 	//TriggerModuleShare(2); // 2 = reshare PAK Ext ROM
 	HRState->WRamBuffer=(unsigned short *)HRState->RamBuffer;
@@ -356,35 +364,11 @@ void DoHardReset(SystemState2* const HRState)
 		fprintf(stderr,"Can't allocate enough RAM, Out of memory\n");
 		exit(0);
 	}
-	switch (HRState->CpuType)
-	{
-		case 0: // 6809
-		CPUInit=MC6809Init;
-		CPUExec=MC6809Exec;
-		CPUReset=MC6809Reset;
-		CPUAssertInterupt=MC6809AssertInterupt;
-		CPUDeAssertInterupt=MC6809DeAssertInterupt;
-		CPUForcePC=MC6809ForcePC;
-		break;
-		case 1: // 6309
-		CPUInit=HD6309Init;
-		switch (HRState->MouseType) // Mouse type determines which CPU exec we use
-		{
-			case 0: CPUExec=HD6309Exec; /* fprintf(stdout, "CPU Exec\n"); */ break;
-			case 1: CPUExec=HD6309ExecHiRes; /* fprintf(stdout, "CPU Exec Hi-Res\n"); */ break;
-			default: CPUExec=HD6309Exec; /* fprintf(stdout, "CPU Exec\n"); */ break;
-		}
-		CPUReset=HD6309Reset;
-		CPUAssertInterupt=HD6309AssertInterupt;
-		CPUDeAssertInterupt=HD6309DeAssertInterupt;
-		CPUForcePC=HD6309ForcePC;
-		break;
-	}
-
+	CPUExec=Execute;
+	CPUAssertInterrupt=Interrupt;
 	PiaReset();
-	mc6883_reset();	//Captures interal rom pointer for CPU Interupt Vectors
-	CPUInit();
-	CPUReset();		// Zero all CPU Registers and sets the PC to VRESET
+	mc6883_reset();	//Captures interal rom pointer for CPU Interrupt Vectors
+	MPUReset();
 	GimeResetAGAR();
 	UpdateBusPointer();
 	EmuState2.DoubleSpeedFlag=0;
@@ -398,7 +382,7 @@ static void SoftReset(void)
 {
 	mc6883_reset(); 
 	PiaReset();
-	CPUReset();
+	MPUReset();
 	GimeResetAGAR();
 	MmuReset();
 	CopyRom();
@@ -417,11 +401,14 @@ unsigned char SetRamSize(unsigned char Size)
 	return(EmuState2.RamSize);
 }
 
+int gThrottle;
+
 unsigned char SetSpeedThrottle(unsigned char throttle)
 {
+    gThrottle = throttle;
 	if (throttle!=QUERY)
 	{
-		CalibrateThrottle();
+		//CalibrateThrottle();
 		Throttle=throttle;
 	}
 	return(Throttle);
@@ -507,21 +494,16 @@ void SetMMUStat(unsigned char mmu)
 	}
 }
 
-void *EmuLoop(void *p)
+void *EmuLoop(void *RFState2)
 {
 	static float FPS;
 	static unsigned int FrameCounter=0;	
-	CalibrateThrottle();
+	//CalibrateThrottle();
 	AG_Delay(30);
 	unsigned long LC = 0;
-	int framecnt = 0;
 	static char ttbuff[256];
 
-	//TestDelay();
-
-	//printf("Entering Emu Loop : Skip %i - Reset : %i\n", (int)EmuState2.FrameSkip, (int)EmuState2.ResetPending);
-
-	while (1) 
+	while (((SystemState2 *)RFState2)->agwin->visible)
 	{
 		if (FlagEmuStop==TH_REQWAIT)
 		{
@@ -539,7 +521,7 @@ void *EmuLoop(void *p)
 			QuickLoad(QuickLoadFile);
 		}
 
-		StartRender();
+		//StartRender();
 		for (uint8_t Frames = 1; Frames <= EmuState2.FrameSkip; Frames++)
 		{
 			FrameCounter++;
@@ -582,14 +564,14 @@ void *EmuLoop(void *p)
 			}
 		}
 
-		EndRender(EmuState2.FrameSkip);
+		//EndRender(EmuState2.FrameSkip);
 		FPS = FPS != 0.0 ? FPS/EmuState2.FrameSkip : GetCurrentFPS()/EmuState2.FrameSkip;
 		GetModuleStatus(&EmuState2);
 
 		// Update status bar
 
 		char tmpbuf[256];
-		sprintf(ttbuff, "FPS:%3.0f|%s%s%s@%3.2fMhz", FPS,CpuName,NatEmuStat,MMUStat,EmuState2.CPUCurrentSpeed);
+		sprintf(ttbuff, "FPS:%3.0f|%s%s%s@%03.fMHz", FPS + .5f,CpuName,NatEmuStat,MMUStat,EmuState2.CPUCurrentSpeed);
 
 		if(showLeftJoystickValues)
 		{
@@ -614,16 +596,8 @@ void *EmuLoop(void *p)
     	extern void SetStatusBarText(const char *, SystemState2 *);
 		SetStatusBarText(ttbuff, &EmuState2);
 
-#ifndef ISOCPU
-		if (Throttle)	//Do nothing until the frame is over returning unused time to OS
-		{
-    		//fprintf(stderr, "4(%2.3f)", timems());
-			FrameWait();
-    		//fprintf(stderr, "5(%2.3f)-", timems());
-		}
-#endif
 	} //Still Emulating
-	return(p);
+	return NULL;
 }
 
 void FullScreenToggleAGAR(void)

@@ -26,12 +26,14 @@ typedef unsigned long  UINT64, *PUINT64;
 
 extern UINT8 (*MemRead8)(UINT16);
 extern void (*MemWrite8)(UINT8, UINT16);
+extern UINT16 (*MemRead16)(UINT16);
+extern void (*MemWrite16)(UINT16, UINT16);
 
 extern UINT8 (*MmuRead8)(UINT8, UINT16);
 extern void (*MmuWrite8)(UINT8, UINT8, UINT16);
 
-extern UINT16 MemRead16(UINT16);
-extern void MemWrite16(UINT16, UINT16);
+extern UINT16 MemRead16_c(UINT16);
+extern void MemWrite16_c(UINT16, UINT16);
 extern UINT32 MemRead32(UINT16);
 extern void MemWrite32(UINT32, UINT16);
 

@@ -52,9 +52,8 @@ typedef struct
 //CPU 
 #define FRAMESPERSECORD (double)59.923	//The coco really runs at about 59.923 Frames per second
 #define LINESPERSCREEN (double)262
-#define PICOSECOND (double)1000000000
+#define NANOSECOND (double)1000000000
 #define COLORBURST (double)3579545 
-#define AUDIOBUFFERS 12
 
 //Misc
 #define MAX_LOADSTRING 100
@@ -69,8 +68,8 @@ typedef struct
 extern void (*CPUInit)(void);
 extern int  (*CPUExec)( int);
 extern void (*CPUReset)(void);
-extern void (*CPUAssertInterupt)(unsigned char,unsigned char);
-extern void (*CPUDeAssertInterupt)(unsigned char);
+extern void (*CPUAssertInterrupt)(unsigned char,unsigned char);
+extern void (*CPUDeAssertInterrupt)(unsigned char);
 extern void (*CPUForcePC)(unsigned short);
 
 extern void _MessageBox(const char *);
@@ -126,5 +125,7 @@ typedef struct
 static char RateList[4][7]={"Mute","11025","22050","44100"};
 static unsigned short iRateList[4]={0,11025,22050,44100};
 #define TAPEAUDIORATE 44100
+
+#define BASE_CLOCK	1
 
 #endif
