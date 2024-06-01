@@ -499,7 +499,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "for file in $PROJECT_DIR/copy/*; do\n\tln -fs $file $BUILT_PRODUCTS_DIR/\ndone\n";
+			shellScript = "for file in $PROJECT_DIR/copy/* /usr/local/lib/libag_{core,gui}.dylib; do\n\tln -fs $file $BUILT_PRODUCTS_DIR/\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
