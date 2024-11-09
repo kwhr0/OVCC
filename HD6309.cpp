@@ -3,9 +3,9 @@
 // MIT License
 
 #include "HD6309.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 enum {
 	LC, LV, LZ, LN, LI, LH, LF, LE
@@ -20,68 +20,67 @@ enum {
 	FB = 1, F0, F1, F8, F16, F32, FADD8, FSUB8, FADD16, FSUB16, FMUL, FDIV, FLEFT8, FLEFT16
 };
 
-#define M(flag, type)	flag##type = F##type << (L##flag << 2)
+#define F(flag, type)	flag##type = F##type << (L##flag << 2)
 enum {
-	M(C, B), M(C, 0), M(C, 1), M(C, 8), M(C, 16), M(C, ADD8), M(C, SUB8), M(C, ADD16), M(C, SUB16),
-	M(C, LEFT8), M(C, LEFT16), M(C, MUL), M(C, DIV),
-	M(V, B), M(V, 0), M(V, 1), M(V, 8), M(V, 16), M(V, ADD8), M(V, SUB8), M(V, ADD16), M(V, SUB16),
-	M(V, LEFT8), M(V, LEFT16),
-	M(Z, B), M(Z, 0), M(Z, 1), M(Z, 8), M(Z, 16), M(Z, 32),
-	M(N, B), M(N, 0), M(N, 8), M(N, 16),
-	M(H, B), M(H, ADD8)
+	F(C, B), F(C, 0), F(C, 1), F(C, 8), F(C, 16), F(C, ADD8), F(C, SUB8), F(C, ADD16), F(C, SUB16),
+	F(C, LEFT8), F(C, LEFT16), F(C, MUL), F(C, DIV),
+	F(V, B), F(V, 0), F(V, 1), F(V, 8), F(V, 16), F(V, ADD8), F(V, SUB8), F(V, ADD16), F(V, SUB16),
+	F(V, LEFT8), F(V, LEFT16),
+	F(Z, B), F(Z, 0), F(Z, 1), F(Z, 8), F(Z, 16), F(Z, 32),
+	F(N, B), F(N, 0), F(N, 8), F(N, 16),
+	F(H, B), F(H, ADD8)
 };
+#undef F
 
-#define fmnt()			(++fp < fbuf + FBUFMAX ? 0 : ResolvFlags())
-#define fclr()			(fp->dm = N0 | Z1 | V0 | C0, fmnt())
-#define fnz8(x)			(fp->dm = N8 | Z8, fp->a = (x), fmnt())
-#define fnz16(x)		(fp->dm = N16 | Z16, fp->a = (x), fmnt())
-#define fz16(x)			(fp->dm = Z16, fp->a = (x), fmnt())
-#define fmov8(x)		(fp->dm = N8 | Z8 | V0, fp->a = (x), fmnt())
-#define fmov16(x)		(fp->dm = N16 | Z16 | V0, fp->a = (x), fmnt())
-#define fmov32(x, y)	(fp->dm = N16 | Z32 | V0, fp->b = (y), fp->a = (x), fmnt())
-#define fadd8(x, y, z)	(fp->dm = HADD8 | N8 | Z8 | VADD8 | CADD8, fp->b = (x), fp->s = (y), fp->a = (z), fmnt())
-#define fadd16(x, y, z)	(fp->dm = N16 | Z16 | VADD16 | CADD16, fp->b = (x), fp->s = (y), fp->a = (z), fmnt())
-#define fsub8(x, y, z)	(fp->dm = N8 | Z8 | VSUB8 | CSUB8, fp->b = (x), fp->s = (y), fp->a = (z), fmnt())
-#define fsub16(x, y, z)	(fp->dm = N16 | Z16 | VSUB16 | CSUB16, fp->b = (x), fp->s = (y), fp->a = (z), fmnt())
-#define fmul(x)			(fp->dm = Z16 | CMUL, fp->a = (x), fmnt())
-#define fdiv(x, y)		(fp->dm = N8 | Z8 | VB | CDIV, fp->b = (x), fp->a = (y), fmnt())
-#define fdiv16(x, y)	(fp->dm = N16 | Z16 | VB | CDIV, fp->b = (x), fp->a = (y), fmnt())
-#define fdivro()		(fp->dm = N0 | Z0 | V1 | C0, fmnt())
-#define fleft8(x, y)	(fp->dm = N8 | Z8 | VLEFT8 | CLEFT8, fp->b = (x), fp->a = (y), fmnt())
-#define fleft16(x, y)	(fp->dm = N16 | Z16 | VLEFT16 | CLEFT16, fp->b = (x), fp->a = (y), fmnt())
-#define fright8(x, y)	(fp->dm = N8 | Z8 | CB, fp->b = (x), fp->a = (y), fmnt())
-#define fright16(x, y)	(fp->dm = N16 | Z16 | CB, fp->b = (x), fp->a = (y), fmnt())
-#define finc8(x, y)		(fp->dm = N8 | Z8 | VADD8, fp->b = (x), fp->s = 0, fp->a = (y), fmnt())
-#define finc16(x, y)	(fp->dm = N16 | Z16 | VADD16, fp->b = (x), fp->s = 0, fp->a = (y), fmnt())
-#define fdec8(x, y)		(fp->dm = N8 | Z8 | VSUB8, fp->b = (x), fp->s = 0, fp->a = (y), fmnt())
-#define fdec16(x, y)	(fp->dm = N16 | Z16 | VSUB16, fp->b = (x), fp->s = 0, fp->a = (y), fmnt())
-#define fneg8(x)		(fp->dm = N8 | Z8 | V8 | C8, fp->a = (x), fmnt())
-#define fneg16(x)		(fp->dm = N16 | Z16 | V16 | C16, fp->a = (x), fmnt())
-#define fcom8(x)		(fp->dm = N8 | Z8 | V0 | C1, fp->a = (x), fmnt())
-#define fcom16(x)		(fp->dm = N16 | Z16 | V0 | C1, fp->a = (x), fmnt())
-#define fdaa(x, y)		(fp->dm = N8 | Z8 | CADD8, fp->b = (x), fp->a = (y), fmnt())
+#define fclr()			fset<N0 | Z1 | V0 | C0>()
+#define fnz8(a)			fset<N8 | Z8>(a)
+#define fnz16(a)		fset<N16 | Z16>(a)
+#define fz16(a)			fset<Z16>(a)
+#define fmov8(a)		fset<N8 | Z8 | V0>(a)
+#define fmov16(a)		fset<N16 | Z16 | V0>(a)
+#define fmov32(a, d)	fset<N16 | Z32 | V0>(a, d)
+#define fadd8(a, d, s)	fset<HADD8 | N8 | Z8 | VADD8 | CADD8>(a, d, s)
+#define fadd8r(a, d, s)	fset<N8 | Z8 | VADD8 | CADD8>(a, d, s)
+#define fadd16(a, d, s)	fset<N16 | Z16 | VADD16 | CADD16>(a, d, s)
+#define fsub8(a, d, s)	fset<N8 | Z8 | VSUB8 | CSUB8>(a, d, s)
+#define fsub16(a, d, s)	fset<N16 | Z16 | VSUB16 | CSUB16>(a, d, s)
+#define fmul(a)			fset<Z16 | CMUL>(a)
+#define fdiv(a, d)		fset<N8 | Z8 | VB | CDIV>(a, d)
+#define fdiv16(a, d)	fset<N16 | Z16 | VB | CDIV>(a, d)
+#define fleft8(a, d)	fset<N8 | Z8 | VLEFT8 | CLEFT8>(a, d)
+#define fleft16(a, d)	fset<N16 | Z16 | VLEFT16 | CLEFT16>(a, d)
+#define fright8(a, d)	fset<N8 | Z8 | CB>(a, d)
+#define fright16(a, d)	fset<N16 | Z16 | CB>(a, d)
+#define finc8(a, d)		fset<N8 | Z8 | VADD8>(a, d)
+#define finc16(a, d)	fset<N16 | Z16 | VADD16>(a, d)
+#define fdec8(a, d)		fset<N8 | Z8 | VSUB8>(a, d)
+#define fdec16(a, d)	fset<N16 | Z16 | VSUB16>(a, d)
+#define fdivro()		fset<N0 | Z0 | V1 | C0>()
+#define fneg8(a)		fset<N8 | Z8 | V8 | C8>(a)
+#define fneg16(a)		fset<N16 | Z16 | V16 | C16>(a)
+#define fcom8(a)		fset<N8 | Z8 | V0 | C1>(a)
+#define fcom16(a)		fset<N16 | Z16 | V0 | C1>(a)
+#define fdaa(a, d)		fset<N8 | Z8 | CADD8>(a, d)
 
-#define CY			(ResolvC())
-#define CLOCK(x)	(clock += (x))
+#define CY				(cc & MC)
+#define CLOCK(x)		(clock += (x))
 
-#define A	r[1]
-#define B	r[0]
-#define D	((uint16_t &)r[0])
-#define X	((uint16_t &)r[2])
-#define Y	((uint16_t &)r[4])
-#define U	((uint16_t &)r[6])
-#define S	((uint16_t &)r[8])
-#define PC	((uint16_t &)r[10])
-#define E	r[13]
-#define F	r[12]
-#define W	((uint16_t &)r[12])
-#define V	((uint16_t &)r[14])
+#define A				r[1]
+#define B				r[0]
+#define D				((u16 &)r[0])
+#define X				((u16 &)r[2])
+#define Y				((u16 &)r[4])
+#define U				((u16 &)r[6])
+#define S				((u16 &)r[8])
+#define PC				((u16 &)r[10])
+#define E				r[13]
+#define F				r[12]
+#define W				((u16 &)r[12])
+#define V				((u16 &)r[14])
 
-#define da()		(dp << 8 | imm8())
+#define da()			(dp | imm8())
 
-enum { W_SYNC = 1, W_CWAI };
-
-static constexpr uint8_t eclk1[] = {
+static constexpr uint8_t eclk[] = {
 //  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 	6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 3, 6, // 0x00
 	1, 1, 2, 4, 4, 1, 5, 9, 1, 2, 3, 1, 3, 2, 8, 6, // 0x10
@@ -101,7 +100,7 @@ static constexpr uint8_t eclk1[] = {
 	5, 5, 5, 7, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, // 0xf0
 };
 
-static constexpr uint8_t nclk1[] = {
+static constexpr uint8_t nclk[] = {
 //  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 	5, 6, 6, 5, 5, 6, 5, 5, 5, 5, 5, 6, 5, 4, 2, 5, // 0x00
 	1, 1, 1, 3, 4, 1, 4, 7, 1, 1, 3, 1, 3, 1, 5, 4, // 0x10
@@ -121,7 +120,7 @@ static constexpr uint8_t nclk1[] = {
 	4, 4, 4, 5, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, // 0xf0
 };
 
-static constexpr uint8_t eclk2[] = {
+static constexpr uint8_t eclk10[] = {
 //  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1000
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1010
@@ -141,7 +140,7 @@ static constexpr uint8_t eclk2[] = {
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 9, 9, 7, 7, // 0x10f0
 };
 
-static constexpr uint8_t nclk2[] = {
+static constexpr uint8_t nclk10[] = {
 //  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1000
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1010
@@ -161,7 +160,7 @@ static constexpr uint8_t nclk2[] = {
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8, 8, 6, 6, // 0x10f0
 };
 
-static constexpr uint8_t eclk3[] = {
+static constexpr uint8_t eclk11[] = {
 //  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1100
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1110
@@ -181,7 +180,7 @@ static constexpr uint8_t eclk3[] = {
 	6, 6, 2, 2, 2, 2, 6, 6, 2, 2, 2, 6, 2, 2, 2, 2, // 0x11f0
 };
 
-static constexpr uint8_t nclk3[] = {
+static constexpr uint8_t nclk11[] = {
 //  0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1100
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0x1110
@@ -241,12 +240,7 @@ static constexpr uint8_t nclkea[] = {
 	4, 5, 0, 5, 3, 4, 4, 4, 4, 6, 4, 5, 4, 6, 4, 0, // 0xf0
 };
 
-static void error() {
-	fprintf(stderr, "internal error\n");
-	exit(1);
-}
-
-HD6309::HD6309() : clktbl1(eclk1), clktbl2(eclk2), clktbl3(eclk3), clktblea(eclkea) {
+HD6309::HD6309() : clktbl(eclk), clktbl10(eclk10), clktbl11(eclk11), clktblea(eclkea) {
 #if HD6309_TRACE
 	memset(tracebuf, 0, sizeof(tracebuf));
 	tracep = tracebuf;
@@ -256,30 +250,30 @@ HD6309::HD6309() : clktbl1(eclk1), clktbl2(eclk2), clktbl3(eclk3), clktblea(eclk
 void HD6309::Reset() {
 	dp = md = irq = waitflags = 0;
 	memset(r, 0, sizeof(r));
-	SetupFlags(MF | MI);
+	cc = MF | MI;
 	PC = ld16(0xfffe);
 }
 
-uint16_t HD6309::ea() { // indexed addressing
-	int8_t o = imm8();
+HD6309::u16 HD6309::ea() { // indexed addressing
+	s8 o = imm8();
 	CLOCK(clktblea[o]);
-	auto ir = [&]()->uint16_t & { return (uint16_t &)r[(o >> 4 & 6) + 2]; };
+	auto ir = [&]()->u16 & { return (u16 &)r[(o >> 4 & 6) + 2]; };
 	if (!(o & 0x80))
-		return ir() + ((int16_t)(o << 11) >> 11); // 5bit offset
-	uint16_t adr;
+		return ir() + ((s16)(o << 11) >> 11); // 5bit offset
+	u16 adr;
 	switch (o & 0xf) {
 		case 0x1: adr = ir(); ir() += 2; break;
 		case 0x2: adr = --ir(); break;
 		case 0x3: adr = ir() -= 2; break;
 		case 0x4: adr = ir(); break;
-		case 0x5: adr = ir() + (int8_t)B; break;
-		case 0x6: adr = ir() + (int8_t)A; break;
-		case 0x7: adr = ir() + (int8_t)E; break;
-		case 0x8: adr = ir() + (int8_t)imm8(); break;
+		case 0x5: adr = ir() + (s8)B; break;
+		case 0x6: adr = ir() + (s8)A; break;
+		case 0x7: adr = ir() + (s8)E; break;
+		case 0x8: adr = ir() + (s8)imm8(); break;
 		case 0x9: adr = ir() + imm16(); break;
-		case 0xa: adr = ir() + (int8_t)F; break;
+		case 0xa: adr = ir() + (s8)F; break;
 		case 0xb: adr = ir() + D; break;
-		case 0xc: adr = (int8_t)imm8(); adr += PC; break;
+		case 0xc: adr = (s8)imm8(); adr += PC; break;
 		case 0xd: adr = imm16(); adr += PC; break;
 		case 0xe: adr = ir() + W; break;
 		default: // 0 or 0xf
@@ -301,296 +295,306 @@ uint16_t HD6309::ea() { // indexed addressing
 }
 
 template<typename T> void HD6309::bitTransfer(T op) {
-	uint8_t pb = imm8(), a = pb & 7, d = 0;
+	u8 pb = imm8(), a = pb & 7, d = 0;
 	switch (pb & 0xc0) {
-		case 0: d = ResolvFlags(); break;
+		case 0: d = cc; break;
 		case 0x40: d = A; break;
 		case 0x80: d = B; break;
 	}
 	d = (d & ~(1 << a)) | (op(d >> a, ld8(da()) >> (pb >> 3 & 7)) & 1) << a;
 	switch (pb & 0xc0) {
-		case 0: SetupFlags(d); break;
+		case 0: cc = d; break;
 		case 0x40: A = d; break;
 		case 0x80: B = d; break;
 	}
 }
 
 template<typename T1, typename T2> void HD6309::interRegister(T1 f8, T2 f16) {
-	auto rsels = [&](uint8_t sel)->uint16_t {
-		if (!(sel & 0x80)) return (uint16_t &)r[sel >> 4 << 1];
+	auto rsels = [&](u8 sel)->u16 {
+		if (!(sel & 0x80)) return (u16 &)r[sel >> 4 << 1];
 		switch (sel & 0xf0) {
 			case 0x80: return sel & 8 ? A : D;
 			case 0x90: return sel & 8 ? B : D;
-			case 0xa0: return ResolvFlags();
-			case 0xb0: return sel & 8 ? dp : dp << 8;
+			case 0xa0: return cc;
+			case 0xb0: return sel & 8 ? dp >> 8 : dp;
 			case 0xe0: return sel & 8 ? E : W;
 			case 0xf0: return sel & 8 ? F : W;
 		}
 		return 0;
 	};
-	auto rseld = [&](uint8_t sel)->uint16_t {
+	auto rseld = [&](u8 sel)->u16 {
 		sel &= 0xf;
-		if (!(sel & 8)) return (uint16_t &)r[sel << 1];
+		if (!(sel & 8)) return (u16 &)r[sel << 1];
 		switch (sel) {
 			case 8: return A;
 			case 9: return B;
-			case 10: return ResolvFlags();
-			case 11: return dp;
+			case 10: return cc;
+			case 11: return dp >> 8;
 			case 14: return E;
 			case 15: return F;
 		}
 		return 0;
 	};
-	auto wseli = [&](uint8_t sel, uint16_t data) {
+	auto wseli = [&](u8 sel, u16 data) {
 		sel &= 0xf;
 		if (!(sel & 8)) {
-			(uint16_t &)r[sel << 1] = data;
+			(u16 &)r[sel << 1] = data;
 			return;
 		}
 		switch (sel) {
 			case 8: A = data; break;
 			case 9: B = data; break;
-			case 10: SetupFlags(data); break;
-			case 11: dp = data; break;
+			case 10: cc = data; break;
+			case 11: dp = data << 8; break;
 			case 14: E = data; break;
 			case 15: F = data; break;
 		}
 	};
-	uint8_t sel = imm8();
+	u8 sel = imm8();
 	if (sel & 8) {
-		uint8_t d = rseld(sel);
+		u8 d = rseld(sel);
 		f8(d, rsels(sel));
 		wseli(sel, d);
 	}
 	else {
-		uint16_t d = rseld(sel);
+		u16 d = rseld(sel);
 		f16(d, rsels(sel));
 		wseli(sel, d);
 	}
 }
 
-void HD6309::transfer(uint8_t op, uint8_t t8) {
-	auto rsel = [&](uint8_t sel)->uint16_t {
-		uint8_t t;
+void HD6309::transfer(u8 op, u8 t8) {
+	auto rsel = [&](u8 sel)->u16 {
+		u8 t;
 		switch (sel &= 0xf) {
 			case 8: return A << 8 | A;
 			case 9: return B << 8 | B;
-			case 10: t = ResolvFlags(); return t << 8 | t;
-			case 11: return dp << 8 | dp;
+			case 10: t = cc; return t << 8 | t;
+			case 11: return dp | dp >> 8;
 			case 12: case 13: return 0;
 			case 14: return E << 8 | E;
 			case 15: return F << 8 | F;
 		}
-		return (uint16_t &)r[sel << 1];
+		return (u16 &)r[sel << 1];
 	};
-	auto wsel = [&](uint8_t sel, uint16_t data) {
+	auto wsel = [&](u8 sel, u16 data) {
 		switch (sel &= 0xf) {
 			case 8: A = data >> 8; return;
 			case 9: B = data; return;
-			case 10: SetupFlags(data); return;
-			case 11: dp = data >> 8; return;
+			case 10: cc = data; return;
+			case 11: dp = data & 0xff00; return;
 			case 12: case 13: return;
 			case 14: E = data >> 8; return;
 			case 15: F = data; return;
 		}
-		(uint16_t &)r[sel << 1] = data;
+		(u16 &)r[sel << 1] = data;
 	};
 	if (op & 1) wsel(t8, rsel(t8 >> 4)); // tfr
 	else { // exg
-		uint16_t t = rsel(t8);
+		u16 t = rsel(t8);
 		wsel(t8, rsel(t8 >> 4));
 		wsel(t8 >> 4, t);
 	}
 }
 
+void HD6309::trap(u16 vec = 0xfff0, u8 p = 0xff, u8 m = MF | MI) {
+	if (p) {
+		if (p == 0xff) cc |= ME;
+		else cc &= ~ME;
+		psh(true, p, md & 1 && p == 0xff);
+	}
+	cc |= m;
+	PC = ld16(vec);
+}
+
+void HD6309::divd(s8 s) {
+	if (!s) {
+		md |= 0x80;
+		trap();
+		return;
+	}
+	s16 t = (s16)D / s, u = t >> 8;
+	if (u && u != -1) {
+		fdivro();
+		CLOCK(-13);
+		return;
+	}
+	int v = t != (s8)t;
+	A = (s16)D % s;
+	B = t;
+	fdiv(B, v);
+	CLOCK(-v);
+}
+
+void HD6309::divq(s16 s) {
+	if (!s) {
+		md |= 0x80;
+		trap();
+		return;
+	}
+	s32 d = D << 16 | W, t = d / s, u = t >> 16;
+	if (u && u != -1) {
+		fdivro();
+		CLOCK(-21);
+		return;
+	}
+	int v = t != (s16)t;
+	D = d % s;
+	W = t;
+	fdiv16(W, v);
+	CLOCK(-v);
+}
+
+void HD6309::tfm(int s, int d) {
+	fz16(W);
+	if (!W) {
+		PC++;
+		CLOCK(6);
+		return;
+	}
+	int sel = imm8(), si = sel >> 4, di = sel & 0xf;
+	if (si > 4 || di > 4) {
+		md |= 0x40;
+		trap();
+		return;
+	}
+	W--;
+	u16 &sr = (u16 &)r[si << 1], &dr = (u16 &)r[di << 1];
+	st8(dr, ld8(sr));
+	sr += s;
+	dr += d;
+	PC -= 3;
+}
+
+void HD6309::psh(bool s, u8 t, bool wp) {
+	u16 &p = s ? S : U;
+	if (t & 0x80) st16r(p -= 2, PC);
+	if (t & 0x40) st16r(p -= 2, s ? U : S);
+	if (t & 0x20) st16r(p -= 2, Y);
+	if (t & 0x10) st16r(p -= 2, X);
+	if (t & 0x08) st8(--p, dp >> 8);
+	if (wp) { st16r(p -= 2, W); CLOCK(2); }
+	if (t & 0x04) st8(--p, B);
+	if (t & 0x02) st8(--p, A);
+	if (t & 0x01) st8(--p, cc);
+	CLOCK(__builtin_popcount(t) + __builtin_popcount(t & 0xf0));
+}
+
+void HD6309::pul(bool s, u8 t, bool wp) {
+	u16 &p = s ? S : U;
+	if (t & 0x01) cc = ld8(p++);
+	if (t & 0x02) A = ld8(p++);
+	if (t & 0x04) B = ld8(p++);
+	if (wp) { W = ld16(p); p += 2; CLOCK(2); }
+	if (t & 0x08) dp = ld8(p++) << 8;
+	if (t & 0x10) { X = ld16(p); p += 2; }
+	if (t & 0x20) { Y = ld16(p); p += 2; }
+	if (t & 0x40) { (s ? U : S) = ld16(p); p += 2; }
+	if (t & 0x80) { PC = ld16(p); p += 2; }
+	CLOCK(__builtin_popcount(t) + __builtin_popcount(t & 0xf0));
+}
+
+void HD6309::ProcessInterrupt() {
+	irq &= ~M_SYNC;
+	if (waitflags & W_SYNC) {
+		waitflags &= ~W_SYNC;
+		PC++;
+	}
+	if (irq & M_NMI || (irq & M_FIRQ && !(cc & MF)) || (irq & M_IRQ && !(cc & MI))) {
+		u8 p = waitflags & W_CWAI ? 0 : 0xff;
+		if (!p) {
+			waitflags &= ~W_CWAI;
+			PC += 2;
+		}
+		if (irq & M_NMI) {
+			irq &= ~M_NMI;
+			trap(0xfffc, p);
+			CLOCK(7);
+		}
+		else if (irq & M_FIRQ && !(cc & MF)) {
+			irq &= ~M_FIRQ;
+			trap(0xfff6, md & 2 ? p : p & 0x81);
+			CLOCK(7);
+		}
+		else {
+			irq &= ~M_IRQ;
+			trap(0xfff8, p, MI);
+			CLOCK(7);
+		}
+	}
+}
+
 int HD6309::Execute(int n) {
-	auto psh = [&](bool s, uint8_t t, bool wp = false) {
-		uint16_t &p = s ? S : U;
-		if (t & 0x80) st16r(p -= 2, PC);
-		if (t & 0x40) st16r(p -= 2, s ? U : S);
-		if (t & 0x20) st16r(p -= 2, Y);
-		if (t & 0x10) st16r(p -= 2, X);
-		if (t & 0x08) st8(--p, dp);
-		if (wp) { st16r(p -= 2, W); CLOCK(2); }
-		if (t & 0x04) st8(--p, B);
-		if (t & 0x02) st8(--p, A);
-		if (t & 0x01) st8(--p, ResolvFlags());
-		CLOCK(__builtin_popcount(t) + __builtin_popcount(t & 0xf0));
-	};
-	auto pul = [&](bool s, uint8_t t, bool wp = false) {
-		uint16_t &p = s ? S : U;
-		if (t & 0x01) SetupFlags(ld8(p++));
-		if (t & 0x02) A = ld8(p++);
-		if (t & 0x04) B = ld8(p++);
-		if (wp) { W = ld16(p); p += 2; CLOCK(2); }
-		if (t & 0x08) dp = ld8(p++);
-		if (t & 0x10) { X = ld16(p); p += 2; }
-		if (t & 0x20) { Y = ld16(p); p += 2; }
-		if (t & 0x40) { (s ? U : S) = ld16(p); p += 2; }
-		if (t & 0x80) { PC = ld16(p); p += 2; }
-		CLOCK(__builtin_popcount(t) + __builtin_popcount(t & 0xf0));
-	};
-	auto trap = [&](uint16_t vec = 0xfff0, uint8_t p = 0xff, uint8_t m = MF | MI) {
-		if (p) {
-			if (p == 0xff) intflags |= ME;
-			else intflags &= ~ME;
-			psh(true, p, md & 1 && p == 0xff);
-		}
-		intflags |= m;
-		PC = ld16(vec);
-	};
 	// instructions
-	auto add8 = [&](uint8_t &d, uint8_t s) { fadd8(d, s, d += s); };
-	auto add16 = [&](uint16_t &d, uint16_t s) { fadd16(d, s, d += s); };
-	auto adc8 = [&](uint8_t &d, uint8_t s) { fadd8(d, s, d += s + CY); };
-	auto adc16 = [&](uint16_t &d, uint16_t s) { fadd16(d, s, d += s + CY); };
-	auto sub8 = [&](uint8_t &d, uint8_t s) { fsub8(d, s, d -= s); };
-	auto sub16 = [&](uint16_t &d, uint16_t s) { fsub16(d, s, d -= s); };
-	auto sbc8 = [&](uint8_t &d, uint8_t s) { fsub8(d, s, d -= s + CY); };
-	auto sbc16 = [&](uint16_t &d, uint16_t s) { fsub16(d, s, d -= s + CY); };
-	auto cmp8 = [&](uint8_t d, uint8_t s) { fsub8(d, s, d - s); };
-	auto cmp16 = [&](uint16_t d, uint16_t s) { fsub16(d, s, d - s); };
-	auto muld = [&](int16_t s) { int32_t t = (int16_t)D * s; fnz16(D = t >> 16); W = t; };
-	auto divd = [&](int8_t s) {
-		if (!s) {
-			md |= 0x80;
-			trap();
-			return;
-		}
-		int16_t t = (int16_t)D / s, u = t >> 8;
-		if (u && u != -1) {
-			fdivro();
-			CLOCK(-13);
-			return;
-		}
-		int v = t != (int8_t)t;
-		A = (int16_t)D % s;
-		B = t;
-		fdiv(-v, B);
-		CLOCK(-v);
-	};
-	auto divq = [&](int16_t s) {
-		if (!s) {
-			md |= 0x80;
-			trap();
-			return;
-		}
-		int32_t d = D << 16 | W, t = d / s, u = t >> 16;
-		if (u && u != -1) {
-			fdivro();
-			CLOCK(-21);
-			return;
-		}
-		int v = t != (int16_t)t;
-		D = d % s;
-		W = t;
-		fdiv16(-v, W);
-		CLOCK(-v);
-	};
-	auto incm = [&](uint16_t a) { uint8_t t = ld8(a); finc8(t, ++t); st8(a, t); };
-	auto decm = [&](uint16_t a) { uint8_t t = ld8(a); fdec8(t, --t); st8(a, t); };
-	auto negm = [&](uint16_t a) { uint8_t t = -ld8(a); fneg8(t); st8(a, t); };
-	auto clrm = [&](uint16_t a) { st8(a, 0); fclr(); };
-	auto tstm = [&](uint16_t a) { fmov8(ld8(a)); };
-	auto and8 = [&](uint8_t &d, uint8_t s) { fmov8(d &= s); };
-	auto and16 = [&](uint16_t &d, uint16_t s) { fmov16(d &= s); };
-	auto or8 = [&](uint8_t &d, uint8_t s) { fmov8(d |= s); };
-	auto or16 = [&](uint16_t &d, uint16_t s) { fmov16(d |= s); };
-	auto eor8 = [&](uint8_t &d, uint8_t s) { fmov8(d ^= s); };
-	auto eor16 = [&](uint16_t &d, uint16_t s) { fmov16(d ^= s); };
-	auto comm = [&](uint16_t a) { uint8_t t = ~ld8(a); fcom8(t); st8(a, t); };
-	auto lsl = [&](uint8_t &r) { fleft8(r, r <<= 1); };
-	auto lsr = [&](uint8_t &r) { fright8(r, r >>= 1); };
-	auto asr = [&](uint8_t &r) { fright8(r, r = (int8_t)r >> 1); };
-	auto rol = [&](uint8_t &r) { fleft8(r, r = r << 1 | CY); };
-	auto ror = [&](uint8_t &r) { fright8(r, r = r >> 1 | CY << 7); };
-	auto lslm = [&](uint16_t a) { uint8_t t = ld8(a); fleft8(t, t <<= 1); st8(a, t); };
-	auto lsrm = [&](uint16_t a) { uint8_t t = ld8(a); fright8(t, t >>= 1); st8(a, t); };
-	auto asrm = [&](uint16_t a) { int8_t t = ld8(a); fright8(t, t >>= 1); st8(a, t); };
-	auto rolm = [&](uint16_t a) { uint8_t t = ld8(a); fleft8(t, t = t << 1 | CY); st8(a, t); };
-	auto rorm = [&](uint16_t a) { uint8_t t = ld8(a); fright8(t, t = t >> 1 | CY << 7); st8(a, t); };
-	auto jsr = [&](uint16_t a) { st16r(S -= 2, PC); PC = a; };
-	auto ldq = [&](uint32_t s) { fnz16(D = s >> 16); W = s; }; // undocumented
-	auto stq = [&](uint16_t a) { fmov32(D, W); st16(a, D); st16(a + 2, W); };
-	auto aim = [&](uint8_t m, uint16_t a) { fmov8(m &= ld8(a)); st8(a, m); };
-	auto oim = [&](uint8_t m, uint16_t a) { fmov8(m |= ld8(a)); st8(a, m); };
-	auto eim = [&](uint8_t m, uint16_t a) { fmov8(m ^= ld8(a)); st8(a, m); };
-	auto tim = [&](uint8_t m, uint16_t a) { fmov8(ld8(a) & m); };
-	auto tfm = [&](int s, int d) {
-		fz16(W);
-		if (!W) {
-			PC++;
-			CLOCK(6);
-			return;
-		}
-		int sel = imm8(), si = sel >> 4, di = sel & 0xf;
-		if (si > 4 || di > 4) {
-			md |= 0x40;
-			trap();
-			return;
-		}
-		W--;
-		uint16_t &sr = (uint16_t &)r[si << 1], &dr = (uint16_t &)r[di << 1];
-		st8(dr, ld8(sr));
-		sr += s;
-		dr += d;
-		PC -= 3;
-	};
+	auto add8 = [&](u8 &d, u8 s) { d = fadd8(d + s, d, s); };
+	auto add8r = [&](u8 &d, u8 s) { d = fadd8r(d + s, d, s); };
+	auto add16 = [&](u16 &d, u16 s) { d = fadd16(d + s, d, s); };
+	auto adc8 = [&](u8 &d, u8 s) { d = fadd8(d + s + CY, d, s); };
+	auto adc8r = [&](u8 &d, u8 s) { d = fadd8r(d + s + CY, d, s); };
+	auto adc16 = [&](u16 &d, u16 s) { d = fadd16(d + s + CY, d, s); };
+	auto sub8 = [&](u8 &d, u8 s) { d = fsub8(d - s, d, s); };
+	auto sub16 = [&](u16 &d, u16 s) { d = fsub16(d - s, d, s); };
+	auto sbc8 = [&](u8 &d, u8 s) { d = fsub8(d - s - CY, d, s); };
+	auto sbc16 = [&](u16 &d, u16 s) { d = fsub16(d - s - CY, d, s); };
+	auto cmp8 = [&](u8 d, u8 s) { fsub8(d - s, d, s); };
+	auto cmp16 = [&](u16 d, u16 s) { fsub16(d - s, d, s); };
+	auto muld = [&](s16 s) { s32 t = (s16)D * s; fnz16(D = t >> 16); W = t; }; // undocumented
+	auto incm = [&](u16 a) { u8 t = ld8(a); st8(a, finc8(t + 1, t)); };
+	auto decm = [&](u16 a) { u8 t = ld8(a); st8(a, fdec8(t - 1, t)); };
+	auto negm = [&](u16 a) { u8 t = -ld8(a); fneg8(t); st8(a, t); };
+	auto clrm = [&](u16 a) { st8(a, 0); fclr(); };
+	auto tstm = [&](u16 a) { fmov8(ld8(a)); };
+	auto and8 = [&](u8 &d, u8 s) { fmov8(d &= s); };
+	auto and16 = [&](u16 &d, u16 s) { fmov16(d &= s); };
+	auto or8 = [&](u8 &d, u8 s) { fmov8(d |= s); };
+	auto or16 = [&](u16 &d, u16 s) { fmov16(d |= s); };
+	auto eor8 = [&](u8 &d, u8 s) { fmov8(d ^= s); };
+	auto eor16 = [&](u16 &d, u16 s) { fmov16(d ^= s); };
+	auto comm = [&](u16 a) { u8 t = ~ld8(a); fcom8(t); st8(a, t); };
+	auto lsl = [&](u8 &r) { r = fleft8(r << 1, r); };
+	auto lsr = [&](u8 &r) { r = fright8(r >> 1, r); };
+	auto asr = [&](u8 &r) { r = fright8((s8)r >> 1, r); };
+	auto rol = [&](u8 &r) { r = fleft8(r << 1 | CY, r); };
+	auto ror = [&](u8 &r) { r = fright8(r >> 1 | CY << 7, r); };
+	auto lslm = [&](u16 a) { u8 t = ld8(a); st8(a, fleft8(t << 1, t)); };
+	auto lsrm = [&](u16 a) { u8 t = ld8(a); st8(a, fright8(t >> 1, t)); };
+	auto asrm = [&](u16 a) { s8 t = ld8(a); st8(a, fright8(t >> 1, t)); };
+	auto rolm = [&](u16 a) { u8 t = ld8(a); st8(a, fleft8(t << 1 | CY, t)); };
+	auto rorm = [&](u16 a) { u8 t = ld8(a); st8(a, fright8(t >> 1 | CY << 7, t)); };
+	auto jsr = [&](u16 a) { st16r(S -= 2, PC); PC = a; };
+	auto ldq = [&](u32 s) { fnz16(D = s >> 16); W = s; }; // undocumented
+	auto stq = [&](u16 a) { fmov32(D, W); st16(a, D); st16(a + 2, W); };
+	auto aim = [&](u8 m, u16 a) { fmov8(m &= ld8(a)); st8(a, m); };
+	auto oim = [&](u8 m, u16 a) { fmov8(m |= ld8(a)); st8(a, m); };
+	auto eim = [&](u8 m, u16 a) { fmov8(m ^= ld8(a)); st8(a, m); };
+	auto tim = [&](u8 m, u16 a) { fmov8(ld8(a) & m); };
 	// conditions
-	auto cc = [&]{ return !ResolvC(); };
-	auto lo = [&]{ return ResolvC(); };
-	auto vc = [&]{ return !ResolvV(); };
-	auto vs = [&]{ return ResolvV(); };
-	auto ne = [&]{ return !ResolvZ(); };
-	auto eq = [&]{ return ResolvZ(); };
-	auto pl = [&]{ return !ResolvN(); };
-	auto mi = [&]{ return ResolvN(); };
-	auto hi = [&]{ return ~(ResolvZ() >> LZ | ResolvC() >> LC) & 1; };
-	auto ls = [&]{ return (ResolvZ() >> LZ | ResolvC() >> LC) & 1; };
-	auto ge = [&]{ return ~(ResolvN() >> LN ^ ResolvV() >> LV) & 1; };
-	auto lt = [&]{ return (ResolvN() >> LN ^ ResolvV() >> LV) & 1; };
-	auto gt = [&]{ return ~((ResolvN() >> LN ^ ResolvV() >> LV) | ResolvZ() >> LZ) & 1; };
-	auto le = [&]{ return ((ResolvN() >> LN ^ ResolvV() >> LV) | ResolvZ() >> LZ) & 1; };
+	auto _c = [&]{ return !(cc & MC); };
+	auto lo = [&]{ return cc & MC; };
+	auto vc = [&]{ return !(cc & MV); };
+	auto vs = [&]{ return cc & MV; };
+	auto ne = [&]{ return !(cc & MZ); };
+	auto eq = [&]{ return cc & MZ; };
+	auto pl = [&]{ return !(cc & MN); };
+	auto mi = [&]{ return cc & MN; };
+	auto hi = [&]{ return ~(cc >> (LZ - LC) | cc) & MC; };
+	auto ls = [&]{ return (cc >> (LZ - LC) | cc) & MC; };
+	auto ge = [&]{ return ~(cc ^ cc << (LN - LV)) & MN; };
+	auto lt = [&]{ return (cc ^ cc << (LN - LV)) & MN; };
+	auto gt = [&]{ return ~((cc ^ cc << (LN - LV)) | cc << (LN - LZ)) & MN; };
+	auto le = [&]{ return ((cc ^ cc << (LN - LV)) | cc << (LN - LZ)) & MN; };
 	//
 	clock = 0;
 	do {
-		if (irq) {
-			irq &= ~M_SYNC;
-			if (waitflags & W_SYNC) {
-				waitflags &= ~W_SYNC;
-				PC++;
-			}
-			if (irq & M_NMI || (irq & M_FIRQ && !(intflags & MF)) || (irq & M_IRQ && !(intflags & MI))) {
-				uint8_t p = waitflags & W_CWAI ? 0 : 0xff;
-				if (!p) {
-					waitflags &= ~W_CWAI;
-					PC += 2;
-				}
-				if (irq & M_NMI) {
-					irq &= ~M_NMI;
-					trap(0xfffc, p);
-					CLOCK(7);
-				}
-				else if (irq & M_FIRQ && !(intflags & MF)) {
-					irq &= ~M_FIRQ;
-					trap(0xfff6, md & 2 ? p : p & 0x81);
-					CLOCK(7);
-				}
-				else {
-					irq &= ~M_IRQ;
-					trap(0xfff8, p, MI);
-					CLOCK(7);
-				}
-			}
-		}
+		if (irq) ProcessInterrupt();
 #if HD6309_TRACE
 		tracep->r[5] = PC;
 		tracep->index = tracep->opn = 0;
 #endif
-		int32_t t32;
-		int8_t t8, t;
-		int16_t t16;
-		uint8_t op = imm8();
+		s32 t32;
+		s8 t8, t;
+		s16 t16;
+		u8 op = imm8();
 		switch (op) {
 			case 0x00: negm(da()); break;
 			case 0x01: t8 = imm8(); oim(t8, da()); break;
@@ -610,24 +614,24 @@ int HD6309::Execute(int n) {
 			case 0x0f: clrm(da()); break;
 			case 0x12: break; // nop
 			case 0x13: waitflags |= W_SYNC; PC--; break;
-			case 0x14: D = (int16_t)W >> 15; fnz16(W); break;
+			case 0x14: D = (s16)W >> 15; fnz16(W); break;
 			case 0x16: t16 = imm16(); PC += t16; break;
 			case 0x17: t16 = imm16(); st16r(S -= 2, PC); PC += t16; break;
 			case 0x19: // daa
 				t8 = A;
 				if (CY || (A & 0xf0) > 0x90 || ((A & 0xf0) > 0x80 && (A & 0xf) > 9)) t8 += 0x60;
-				if (ResolvH() || (A & 0xf) > 9) t8 += 6;
-				fdaa(A, A = t8);
+				if (cc & MH || (A & 0xf) > 9) t8 += 6;
+				A = fdaa(t8, A);
 				break;
-			case 0x1a: SetupFlags(ResolvFlags() | imm8()); break;
-			case 0x1c: SetupFlags(ResolvFlags() & imm8()); break;
-			case 0x1d: fnz8(D = (int8_t)B); break;
+			case 0x1a: cc |= imm8(); break;
+			case 0x1c: cc &= imm8(); break;
+			case 0x1d: fnz8(D = (s8)B); break;
 			case 0x1e: case 0x1f: transfer(op, imm8()); break;
 			case 0x20: bcc([]{ return true; }); break; // bra
 			case 0x21: bcc([]{ return false; }); break; // brn
 			case 0x22: bcc(hi); break;
 			case 0x23: bcc(ls); break;
-			case 0x24: bcc(cc); break;
+			case 0x24: bcc(_c); break;
 			case 0x25: bcc(lo); break;
 			case 0x26: bcc(ne); break;
 			case 0x27: bcc(eq); break;
@@ -650,14 +654,14 @@ int HD6309::Execute(int n) {
 			case 0x39: PC = ld16(S); S += 2; break;
 			case 0x3a: X += B; break;
 			case 0x3b: // rti
-				SetupFlags(ld8(S++));
-				t8 = intflags & ME;
+				cc = ld8(S++);
+				t8 = cc & ME;
 				pul(true, t8 ? 0xfe : 0x80, md & 1 && t8); break;
 			case 0x3c:
 				if (waitflags & W_CWAI) PC--;
 				else {
 					waitflags |= W_CWAI;
-					SetupFlags((ResolvFlags() & imm8()) | ME);
+					cc = (cc & imm8()) | ME;
 					psh(true, 0xff, md & 1);
 					PC -= 2;
 				}
@@ -671,8 +675,8 @@ int HD6309::Execute(int n) {
 			case 0x47: asr(A); break;
 			case 0x48: lsl(A); break;
 			case 0x49: rol(A); break;
-			case 0x4a: fdec8(A, --A); break;
-			case 0x4c: finc8(A, ++A); break;
+			case 0x4a: A = fdec8(A - 1, A); break;
+			case 0x4c: A = finc8(A + 1, A); break;
 			case 0x4d: fmov8(A); break;
 			case 0x4f: A = 0; fclr(); break;
 			case 0x50: fneg8(B = -B); break;
@@ -682,8 +686,8 @@ int HD6309::Execute(int n) {
 			case 0x57: asr(B); break;
 			case 0x58: lsl(B); break;
 			case 0x59: rol(B); break;
-			case 0x5a: fdec8(B, --B); break;
-			case 0x5c: finc8(B, ++B); break;
+			case 0x5a: B = fdec8(B - 1, B); break;
+			case 0x5c: B = finc8(B + 1, B); break;
 			case 0x5d: fmov8(B); break;
 			case 0x5f: B = 0; fclr(); break;
 			case 0x60: negm(ea()); break;
@@ -848,7 +852,7 @@ int HD6309::Execute(int n) {
 					case 0x21: lbcc([]{ return false; }); break; // lbrn
 					case 0x22: lbcc(hi); break;
 					case 0x23: lbcc(ls); break;
-					case 0x24: lbcc(cc); break;
+					case 0x24: lbcc(_c); break;
 					case 0x25: lbcc(lo); break;
 					case 0x26: lbcc(ne); break;
 					case 0x27: lbcc(eq); break;
@@ -860,8 +864,8 @@ int HD6309::Execute(int n) {
 					case 0x2d: lbcc(lt); break;
 					case 0x2e: lbcc(gt); break;
 					case 0x2f: lbcc(le); break;
-					case 0x30: interRegister(add8, add16); break;
-					case 0x31: interRegister(adc8, adc16); break;
+					case 0x30: interRegister(add8r, add16); break;
+					case 0x31: interRegister(adc8r, adc16); break;
 					case 0x32: interRegister(sub8, sub16); break;
 					case 0x33: interRegister(sbc8, sbc16); break;
 					case 0x34: interRegister(and8, and16); break;
@@ -875,21 +879,21 @@ int HD6309::Execute(int n) {
 					case 0x3f: trap(0xfff4, 0xff, 0); break; // swi2
 					case 0x40: fneg16(D = -D); break;
 					case 0x43: fcom16(D = ~D); break;
-					case 0x44: fright16(D, D >>= 1); break;
-					case 0x46: fright16(D, D = D >> 1 | CY << 15); break;
-					case 0x47: fright16(D, D = (int16_t)D >> 1); break;
-					case 0x48: fleft16(D, D <<= 1); break;
-					case 0x49: fleft16(D, D = D << 1 | CY); break;
-					case 0x4a: fdec16(D, --D); break;
-					case 0x4c: finc16(D, ++D); break;
+					case 0x44: D = fright16(D >> 1, D); break;
+					case 0x46: D = fright16(D >> 1 | CY << 15, D); break;
+					case 0x47: D = fright16((s16)D >> 1, D); break;
+					case 0x48: D = fleft16(D << 1, D); break;
+					case 0x49: D = fleft16(D << 1 | CY, D); break;
+					case 0x4a: D = fdec16(D - 1, D); break;
+					case 0x4c: D = finc16(D + 1, D); break;
 					case 0x4d: fmov16(D); break;
 					case 0x4f: D = 0; fclr(); break;
 					case 0x53: fcom16(W = ~W); break;
-					case 0x54: fright16(W, W >>= 1); break;
-					case 0x56: fright16(W, W = W >> 1 | CY << 15); break;
-					case 0x59: fleft16(W, W = W << 1 | CY); break;
-					case 0x5a: fdec16(W, --W); break;
-					case 0x5c: finc16(W, ++W); break;
+					case 0x54: W = fright16(W >> 1, W); break;
+					case 0x56: W = fright16(W >> 1 | CY << 15, W); break;
+					case 0x59: W = fleft16(W << 1 | CY, W); break;
+					case 0x5a: W = fdec16(W - 1, W); break;
+					case 0x5c: W = finc16(W + 1, W); break;
 					case 0x5d: fmov16(W); break;
 					case 0x5f: W = 0; fclr(); break;
 					case 0x80: sub16(W, imm16()); break;
@@ -965,23 +969,23 @@ int HD6309::Execute(int n) {
 					case 0xff: fmov16(S); st16(imm16(), S); break;
 					default: md |= 0x40; trap(); break;
 				}
-				CLOCK(clktbl2[op]);
+				CLOCK(clktbl10[op]);
 				goto skip_clock;
 			case 0x11:
 				op = imm8();
 				switch (op) {
-					case 0x30: bitTransfer([](uint8_t d, uint8_t s) { return d & s; }); break;
-					case 0x31: bitTransfer([](uint8_t d, uint8_t s) { return d & ~s; }); break;
-					case 0x32: bitTransfer([](uint8_t d, uint8_t s) { return d | s; }); break;
-					case 0x33: bitTransfer([](uint8_t d, uint8_t s) { return d | ~s; }); break;
-					case 0x34: bitTransfer([](uint8_t d, uint8_t s) { return d ^ s; }); break;
-					case 0x35: bitTransfer([](uint8_t d, uint8_t s) { return d ^ ~s; }); break;
-					case 0x36: bitTransfer([](uint8_t d, uint8_t s) { return s; }); break;
+					case 0x30: bitTransfer([](u8 d, u8 s) { return d & s; }); break;
+					case 0x31: bitTransfer([](u8 d, u8 s) { return d & ~s; }); break;
+					case 0x32: bitTransfer([](u8 d, u8 s) { return d | s; }); break;
+					case 0x33: bitTransfer([](u8 d, u8 s) { return d | ~s; }); break;
+					case 0x34: bitTransfer([](u8 d, u8 s) { return d ^ s; }); break;
+					case 0x35: bitTransfer([](u8 d, u8 s) { return d ^ ~s; }); break;
+					case 0x36: bitTransfer([](u8 d, u8 s) { return s; }); break;
 					case 0x37: // stbt
 						t8 = imm8();
 						t16 = da();
 						switch (t8 & 0xc0) {
-							case 0: t = ResolvFlags(); break;
+							case 0: t = cc; break;
 							case 0x40: t = A; break;
 							case 0x80: t = B; break;
 							default: t = 0; break;
@@ -994,18 +998,18 @@ int HD6309::Execute(int n) {
 					case 0x3b: tfm(0, 1); break;
 					case 0x3c: t8 = imm8(); fz16(md & t8); md &= ~t8; break; // bitmd
 					case 0x3d: md = (md & 0xfc) | (imm8() & 3); // ldmd
-						if (md & 1) { clktbl1 = nclk1; clktbl2 = nclk2; clktbl3 = nclk3; clktblea = nclkea; }
-						else { clktbl1 = eclk1; clktbl2 = eclk2; clktbl3 = eclk3; clktblea = eclkea; }
+						if (md & 1) { clktbl = nclk; clktbl10 = nclk10; clktbl11 = nclk11; clktblea = nclkea; }
+						else { clktbl = eclk; clktbl10 = eclk10; clktbl11 = eclk11; clktblea = eclkea; }
 						break;
 					case 0x3f: trap(0xfff2, 0xff, 0); break; // swi3
 					case 0x43: fcom8(E = ~E); break;
-					case 0x4a: fdec8(E, --E); break;
-					case 0x4c: finc8(E, ++E); break;
+					case 0x4a: E = fdec8(E - 1, E); break;
+					case 0x4c: E = finc8(E + 1, E); break;
 					case 0x4d: fmov8(E); break;
 					case 0x4f: E = 0; fclr(); break;
 					case 0x53: fcom8(F = ~F); break;
-					case 0x5a: fdec8(F, --F); break;
-					case 0x5c: finc8(F, ++F); break;
+					case 0x5a: F = fdec8(F - 1, F); break;
+					case 0x5c: F = finc8(F + 1, F); break;
 					case 0x5d: fmov8(F); break;
 					case 0x5f: F = 0; fclr(); break;
 					case 0x80: sub8(E, imm8()); break;
@@ -1068,179 +1072,149 @@ int HD6309::Execute(int n) {
 					case 0xfb: add8(F, ld8(imm16())); break;
 					default: md |= 0x40; trap(); break;
 				}
-				CLOCK(clktbl3[op]);
+				CLOCK(clktbl11[op]);
 				goto skip_clock;
 			default: md |= 0x40; trap(); break;
 		}
-		CLOCK(clktbl1[op]);
+		CLOCK(clktbl[op]);
 skip_clock:;
 #if HD6309_TRACE
-		tracep->cc = ResolvFlags();
+		tracep->cc = cc;
 		for (int i = 0; i < 8; i++)
-			if (i != 5) tracep->r[i] = (uint16_t &)r[i << 1];
+			if (i != 5) tracep->r[i] = (u16 &)r[i << 1];
 #if HD6309_TRACE > 1
 		if (!waitflags && ++tracep >= tracebuf + TRACEMAX - 1) StopTrace();
 #else
 		if (!waitflags && ++tracep >= tracebuf + TRACEMAX) tracep = tracebuf;
 #endif
 #endif
+#ifdef CURMPU
+		break;
+#endif
 	} while (!waitflags && clock < n);
 	return waitflags ? 0 : clock - n;
 }
 
-int HD6309::ResolvC() {
-	uint32_t sw = 0;
-	FlagDecision *p;
-	for (p = fp - 1; p >= fbuf && !(sw = p->dm & 0xf); p--)
-		;
-	if (p < fbuf) error();
-	switch (sw) {
-		case F0:
-			break;
-		case F1:
-			return MC;
-		case FB:
-			return p->b & MC;
-		case F8:
-			return (p->a & 0xff) != 0;
-		case F16:
-			return p->a != 0;
-		case FADD8:
-			return ((p->s & p->b) | (~p->a & p->b) | (p->s & ~p->a)) >> 7 & MC;
-		case FSUB8:
-			return ((p->s & ~p->b) | (p->a & ~p->b) | (p->s & p->a)) >> 7 & MC;
-		case FADD16:
-			return ((p->s & p->b) | (~p->a & p->b) | (p->s & ~p->a)) >> 15 & MC;
-		case FSUB16:
-			return ((p->s & ~p->b) | (p->a & ~p->b) | (p->s & p->a)) >> 15 & MC;
-		case FMUL:
-			return p->a >> 7 & 1;
-		case FDIV:
-			return p->a & 1;
-		case FLEFT8:
-			return p->b >> 7 & 1;
-		case FLEFT16:
-			return p->b >> 15;
-		default:
-			error();
-			break;
+template<int M> HD6309::u16 HD6309::fset(u16 a, u16 d, u16 s) {
+	if constexpr ((M & 0xf) == C0)
+		cc &= ~MC;
+	if constexpr ((M & 0xf) == C1)
+		cc |= MC;
+	if constexpr ((M & 0xf) == CB) {
+		if (d & 1) cc |= MC;
+		else cc &= ~MC;
 	}
-	return 0;
-}
-
-int HD6309::ResolvV() {
-	uint32_t sw = 0;
-	FlagDecision *p;
-	for (p = fp - 1; p >= fbuf && !(sw = p->dm & 0xf0); p--)
-		;
-	if (p < fbuf) error();
-	switch (sw >> 4) {
-		case F0:
-			break;
-		case F1:
-			return MV;
-		case FB:
-			return p->b & MV;
-		case F8:
-			return ((p->a & 0xff) == 0x80) << LV;
-		case F16:
-			return (p->a == 0x8000) << LV;
-		case FADD8:
-			return ((p->b & p->s & ~p->a) | (~p->b & ~p->s & p->a)) >> (7 - LV) & MV;
-		case FSUB8:
-			return ((p->b & ~p->s & ~p->a) | (~p->b & p->s & p->a)) >> (7 - LV) & MV;
-		case FADD16:
-			return ((p->b & p->s & ~p->a) | (~p->b & ~p->s & p->a)) >> (15 - LV) & MV;
-		case FSUB16:
-			return ((p->b & ~p->s & ~p->a) | (~p->b & p->s & p->a)) >> (15 - LV) & MV;
-		case FLEFT8:
-			return ((p->b >> 6 ^ p->b >> 7) & 1) << LV;
-		case FLEFT16:
-			return ((p->b >> 14 ^ p->b >> 15) & 1) << LV;
-		default:
-			error();
-			break;
+	if constexpr ((M & 0xf) == C8) {
+		if (a & 0xff) cc |= MC;
+		else cc &= ~MC;
 	}
-	return 0;
-}
-
-int HD6309::ResolvZ() {
-	uint32_t sw = 0;
-	FlagDecision *p;
-	for (p = fp - 1; p >= fbuf && !(sw = p->dm & 0xf00); p--)
-		;
-	if (p < fbuf) error();
-	switch (sw >> 8) {
-		case F0:
-			break;
-		case F1:
-			return MZ;
-		case FB:
-			return p->b & MZ;
-		case F8:
-			return !(p->a & 0xff) << LZ;
-		case F16:
-			return !p->a << LZ;
-		case F32:
-			return !(p->a | p->b) << LZ;
-		default:
-			error();
-			break;
+	if constexpr ((M & 0xf) == C16) {
+		if (a) cc |= MC;
+		else cc &= ~MC;
 	}
-	return 0;
-}
-
-int HD6309::ResolvN() {
-	uint32_t sw = 0;
-	FlagDecision *p;
-	for (p = fp - 1; p >= fbuf && !(sw = p->dm & 0xf000); p--)
-		;
-	if (p < fbuf) error();
-	switch (sw >> 12) {
-		case F0:
-			break;
-		case FB:
-			return p->b & MN;
-		case F8:
-			return ((p->a & 0x80) != 0) << LN;
-		case F16:
-			return ((p->a & 0x8000) != 0) << LN;
-		default:
-			error();
-			break;
+	if constexpr ((M & 0xf) == CADD8) {
+		if (((s & d) | (~a & d) | (s & ~a)) & 0x80) cc |= MC;
+		else cc &= ~MC;
 	}
-	return 0;
-}
-
-int HD6309::ResolvH() {
-	uint32_t sw = 0;
-	FlagDecision *p;
-	for (p = fp - 1; p >= fbuf && !(sw = p->dm & 0xf00000); p--)
-		;
-	if (p < fbuf) error();
-	switch (sw >> 20) {
-		case FB:
-			return p->b & MH;
-		case FADD8:
-			return (p->b ^ p->s ^ p->a) << (LH - 4) & MH;
-		default:
-			error();
-			break;
+	if constexpr ((M & 0xf) == CADD16) {
+		if (((s & d) | (~a & d) | (s & ~a)) & 0x8000) cc |= MC;
+		else cc &= ~MC;
 	}
-	return 0;
-}
-
-void HD6309::SetupFlags(int x) {
-	fp = fbuf;
-	fp->dm = HB | NB | VB | CB | ZB;
-	fp++->b = intflags = x;
-}
-
-int HD6309::ResolvFlags() {
-	int r = ResolvH() | ResolvN() | ResolvV() | ResolvC() | ResolvZ();
-	r |= intflags & (ME | MF | MI);
-	SetupFlags(r);
-	return r;
+	if constexpr ((M & 0xf) == CSUB8) {
+		if (((s & ~d) | (a & ~d) | (s & a)) & 0x80) cc |= MC;
+		else cc &= ~MC;
+	}
+	if constexpr ((M & 0xf) == CSUB16) {
+		if (((s & ~d) | (a & ~d) | (s & a)) & 0x8000) cc |= MC;
+		else cc &= ~MC;
+	}
+	if constexpr ((M & 0xf) == CMUL) {
+		if (a & 0x80) cc |= MC;
+		else cc &= ~MC;
+	}
+	if constexpr ((M & 0xf) == CLEFT8) {
+		if (d & 0x80) cc |= MC;
+		else cc &= ~MC;
+	}
+	if constexpr ((M & 0xf) == CLEFT16) {
+		if (d & 0x8000) cc |= MC;
+		else cc &= ~MC;
+	}
+	if constexpr ((M & 0xf) == CDIV) {
+		if (a & 1) cc |= MC;
+		else cc &= ~MC;
+	}
+	if constexpr ((M & 0xf0) == V0)
+		cc &= ~MV;
+	if constexpr ((M & 0xf0) == V1)
+		cc |= MV;
+	if constexpr ((M & 0xf0) == VB) {
+		if (d) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == V8) {
+		if ((a & 0xff) == 0x80) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == V16) {
+		if (a == 0x8000) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == VADD8) {
+		if (((d & s & ~a) | (~d & ~s & a)) & 0x80) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == VADD16) {
+		if (((d & s & ~a) | (~d & ~s & a)) & 0x8000) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == VSUB8) {
+		if (((d & ~s & ~a) | (~d & s & a)) & 0x80) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == VSUB16) {
+		if (((d & ~s & ~a) | (~d & s & a)) & 0x8000) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == VLEFT8) {
+		if ((d >> 6 ^ d >> 7) & 1) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf0) == VLEFT16) {
+		if ((d >> 14 ^ d >> 15) & 1) cc |= MV;
+		else cc &= ~MV;
+	}
+	if constexpr ((M & 0xf00) == Z0)
+		cc &= ~MZ;
+	if constexpr ((M & 0xf00) == Z1)
+		cc |= MZ;
+	if constexpr ((M & 0xf00) == Z8) {
+		if (a & 0xff) cc &= ~MZ;
+		else cc |= MZ;
+	}
+	if constexpr ((M & 0xf00) == Z16) {
+		if (a) cc &= ~MZ;
+		else cc |= MZ;
+	}
+	if constexpr ((M & 0xf00) == Z32) {
+		if (a | d) cc &= ~MZ;
+		else cc |= MZ;
+	}
+	if constexpr ((M & 0xf000) == N0)
+		cc &= ~MN;
+	if constexpr ((M & 0xf000) == N8) {
+		if (a & 0x80) cc |= MN;
+		else cc &= ~MN;
+	}
+	if constexpr ((M & 0xf000) == N16) {
+		if (a & 0x8000) cc |= MN;
+		else cc &= ~MN;
+	}
+	if constexpr ((M & 0xf00000) == HADD8) {
+		if ((d ^ s ^ a) & 0x10) cc |= MH;
+		else cc &= ~MH;
+	}
+	return a;
 }
 
 #if HD6309_TRACE

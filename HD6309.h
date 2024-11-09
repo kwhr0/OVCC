@@ -6,25 +6,31 @@
 #undef IRQ
 #undef FIRQ
 #undef NMI
-#include <stdint.h>
+#include <cstdint>
 
 #define HD6309_TRACE	0
 
 #if HD6309_TRACE
 #define HD6309_TRACE_LOG(adr, data, type) \
-	if (tracep->index < ACSMAX) tracep->acs[tracep->index++] = { adr, (uint16_t)data, type }
+	if (tracep->index < ACSMAX) tracep->acs[tracep->index++] = { adr, (u16)data, type }
 #else
 #define HD6309_TRACE_LOG(adr, data, type)
 #endif
 
 class HD6309 {
+	using s8 = int8_t;
+	using u8 = uint8_t;
+	using s16 = int16_t;
+	using u16 = uint16_t;
+	using s32 = int32_t;
+	using u32 = uint32_t;
 	enum { M_SYNC = 1, M_IRQ = 2, M_FIRQ = 4, M_NMI = 8 };
-	static constexpr int FBUFMAX = 128;
+	enum { W_SYNC = 1, W_CWAI };
 public:
 	HD6309();
 	void Reset();
 	int Execute(int n);
-	uint16_t GetPC() const { return (uint16_t &)r[10]; }
+	u16 GetPC() const { return (u16 &)r[10]; }
 	bool IsNative() const { return md & 1; }
 	void SYNC() { irq |= M_SYNC; }
 	void IRQ() { irq |= M_IRQ; }
@@ -32,69 +38,66 @@ public:
 	void NMI() { irq |= M_NMI; }
 private:
 	// customized access: OVCC
-	int32_t imm8() {
-		uint8_t data = MemRead8(((uint16_t &)r[10])++);
+	s32 imm8() {
+		u8 data = MemRead8(((u16 &)r[10])++);
 #if HD6309_TRACE
 		if (tracep->opn < OPMAX) tracep->op[tracep->opn++] = data;
 #endif
 		return data;
 	}
-	int32_t imm16() {
-		uint32_t adr = (uint16_t &)r[10];
-		((uint16_t &)r[10]) += 2;
-		uint16_t data = MemRead16(adr);
+	s32 imm16() {
+		u32 adr = (u16 &)r[10];
+		((u16 &)r[10]) += 2;
+		u16 data = MemRead16(adr);
 #if HD6309_TRACE
 		if (tracep->opn < OPMAX) tracep->op[tracep->opn++] = data >> 8;
 		if (tracep->opn < OPMAX) tracep->op[tracep->opn++] = data;
 #endif
 		return data;
 	}
-	int32_t ld8(uint16_t adr) {
-		int32_t data = MemRead8(adr);
+	s32 ld8(u16 adr) {
+		s32 data = MemRead8(adr);
 		HD6309_TRACE_LOG(adr, data, acsLoad8);
 		return data;
 	}
-	int32_t ld16(uint16_t adr) {
-		int32_t data = MemRead16(adr);
+	s32 ld16(u16 adr) {
+		s32 data = MemRead16(adr);
 		HD6309_TRACE_LOG(adr, data, acsLoad16);
 		return data;
 	}
-	void st8(uint16_t adr, uint8_t data) {
+	void st8(u16 adr, u8 data) {
 		MemWrite8(data, adr);
 		HD6309_TRACE_LOG(adr, data, acsStore8);
 	}
-	void st16(uint16_t adr, int16_t data) {
+	void st16(u16 adr, s16 data) {
 		MemWrite16(data, adr);
 		HD6309_TRACE_LOG(adr, data, acsStore16);
 	}
-	void st16r(uint16_t adr, int16_t data) {
+	void st16r(u16 adr, s16 data) {
 		MemWrite16(data, adr); // differs writing order
 		HD6309_TRACE_LOG(adr, data, acsStore16);
 	}
 	// customized access -- end
-	uint16_t ea();
-	template<typename T> void bcc(T cond) { (uint16_t &)r[10] += cond() ? (int8_t)imm8() : 1; }
-	template<typename T> void lbcc(T cond) { (uint16_t &)r[10] += cond() ? imm16() : 2; }
+	u16 ea();
+	template<typename T> void bcc(T cond) { (u16 &)r[10] += cond() ? (s8)imm8() : 1; }
+	template<typename T> void lbcc(T cond) { (u16 &)r[10] += cond() ? imm16() : 2; }
 	template<typename T> void bitTransfer(T op);
 	template<typename T1, typename T2> void interRegister(T1 f8, T2 f16);
-	void transfer(uint8_t op, uint8_t t8);
-	int ResolvC();
-	int ResolvV();
-	int ResolvZ();
-	int ResolvN();
-	int ResolvH();
-	int ResolvFlags();
-	void SetupFlags(int x);
-	struct FlagDecision {
-		uint32_t dm;
-		uint16_t s, b, a;
-	};
-	FlagDecision fbuf[FBUFMAX];
-	FlagDecision *fp;
-	const uint8_t *clktbl1, *clktbl2, *clktbl3, *clktblea;
-	uint8_t r[16];
-	uint8_t dp, md, irq, waitflags, intflags;
-	uint32_t clock;
+	void transfer(u8 op, u8 t8);
+	void psh(bool s, u8 t, bool wp = false);
+	void pul(bool s, u8 t, bool wp = false);
+	void trap(u16 vec, u8 p, u8 m);
+	void ProcessInterrupt();
+	void divd(s8 s);
+	void divq(s16 s);
+	void tfm(int s, int d);
+	template<int M> u16 fset(u16 a = 0, u16 d = 0, u16 s = 0);
+//
+	const u8 *clktbl, *clktbl10, *clktbl11, *clktblea;
+	u8 r[16];
+	u8 cc, md, irq, waitflags;
+	u16 dp; // 8-bit shift left
+	u32 clock;
 #if HD6309_TRACE
 	static constexpr int TRACEMAX = 10000;
 	static constexpr int ACSMAX = 19; // max case interrupt follows pshs/puls
@@ -103,14 +106,14 @@ private:
 		acsStore8 = 4, acsStore16, acsLoad8, acsLoad16
 	};
 	struct Acs {
-		uint16_t adr, data;
-		uint8_t type;
+		u16 adr, data;
+		u8 type;
 	};
 	struct TraceBuffer {
-		uint16_t r[8];
+		u16 r[8];
 		Acs acs[ACSMAX];
-		uint8_t op[OPMAX];
-		uint8_t index, cc, opn;
+		u8 op[OPMAX];
+		u8 index, cc, opn;
 	};
 	TraceBuffer tracebuf[TRACEMAX];
 	TraceBuffer *tracep;
