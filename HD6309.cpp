@@ -1088,9 +1088,6 @@ skip_clock:;
 		if (!waitflags && ++tracep >= tracebuf + TRACEMAX) tracep = tracebuf;
 #endif
 #endif
-#ifdef CURMPU
-		break;
-#endif
 	} while (!waitflags && clock < n);
 	return waitflags ? 0 : clock - n;
 }
