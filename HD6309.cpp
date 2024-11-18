@@ -17,18 +17,18 @@ enum {
 };
 
 enum {
-	FB = 1, F0, F1, F8, F16, F32, FADD8, FSUB8, FADD16, FSUB16, FMUL, FDIV, FLEFT8, FLEFT16
+	FD = 1, F0, F1, F8, F16, F32, FADD8, FSUB8, FADD16, FSUB16, FMUL, FDIV, FLEFT8, FLEFT16
 };
 
 #define F(flag, type)	flag##type = F##type << (L##flag << 2)
 enum {
-	F(C, B), F(C, 0), F(C, 1), F(C, 8), F(C, 16), F(C, ADD8), F(C, SUB8), F(C, ADD16), F(C, SUB16),
+	F(C, D), F(C, 0), F(C, 1), F(C, 8), F(C, 16), F(C, ADD8), F(C, SUB8), F(C, ADD16), F(C, SUB16),
 	F(C, LEFT8), F(C, LEFT16), F(C, MUL), F(C, DIV),
-	F(V, B), F(V, 0), F(V, 1), F(V, 8), F(V, 16), F(V, ADD8), F(V, SUB8), F(V, ADD16), F(V, SUB16),
+	F(V, D), F(V, 0), F(V, 1), F(V, 8), F(V, 16), F(V, ADD8), F(V, SUB8), F(V, ADD16), F(V, SUB16),
 	F(V, LEFT8), F(V, LEFT16),
-	F(Z, B), F(Z, 0), F(Z, 1), F(Z, 8), F(Z, 16), F(Z, 32),
-	F(N, B), F(N, 0), F(N, 8), F(N, 16),
-	F(H, B), F(H, ADD8)
+	F(Z, 0), F(Z, 1), F(Z, 8), F(Z, 16), F(Z, 32),
+	F(N, 0), F(N, 8), F(N, 16),
+	F(H, ADD8)
 };
 #undef F
 
@@ -45,12 +45,12 @@ enum {
 #define fsub8(a, d, s)	fset<N8 | Z8 | VSUB8 | CSUB8>(a, d, s)
 #define fsub16(a, d, s)	fset<N16 | Z16 | VSUB16 | CSUB16>(a, d, s)
 #define fmul(a)			fset<Z16 | CMUL>(a)
-#define fdiv(a, d)		fset<N8 | Z8 | VB | CDIV>(a, d)
-#define fdiv16(a, d)	fset<N16 | Z16 | VB | CDIV>(a, d)
+#define fdiv(a, d)		fset<N8 | Z8 | VD | CDIV>(a, d)
+#define fdiv16(a, d)	fset<N16 | Z16 | VD | CDIV>(a, d)
 #define fleft8(a, d)	fset<N8 | Z8 | VLEFT8 | CLEFT8>(a, d)
 #define fleft16(a, d)	fset<N16 | Z16 | VLEFT16 | CLEFT16>(a, d)
-#define fright8(a, d)	fset<N8 | Z8 | CB>(a, d)
-#define fright16(a, d)	fset<N16 | Z16 | CB>(a, d)
+#define fright8(a, d)	fset<N8 | Z8 | CD>(a, d)
+#define fright16(a, d)	fset<N16 | Z16 | CD>(a, d)
 #define finc8(a, d)		fset<N8 | Z8 | VADD8>(a, d)
 #define finc16(a, d)	fset<N16 | Z16 | VADD16>(a, d)
 #define fdec8(a, d)		fset<N8 | Z8 | VSUB8>(a, d)
@@ -613,7 +613,7 @@ int HD6309::Execute(int n) {
 			case 0x0e: PC = da(); break;
 			case 0x0f: clrm(da()); break;
 			case 0x12: break; // nop
-			case 0x13: waitflags |= W_SYNC; PC--; break;
+			case 0x13: waitflags |= W_SYNC; PC--; return 0;
 			case 0x14: D = (s16)W >> 15; fnz16(W); break;
 			case 0x16: t16 = imm16(); PC += t16; break;
 			case 0x17: t16 = imm16(); st16r(S -= 2, PC); PC += t16; break;
@@ -665,7 +665,7 @@ int HD6309::Execute(int n) {
 					psh(true, 0xff, md & 1);
 					PC -= 2;
 				}
-				break;
+				return 0;
 			case 0x3d: fmul(D = A * B); break;
 			case 0x3f: trap(0xfffa); break; // swi
 			case 0x40: fneg8(A = -A); break;
@@ -1083,13 +1083,13 @@ skip_clock:;
 		for (int i = 0; i < 8; i++)
 			if (i != 5) tracep->r[i] = (u16 &)r[i << 1];
 #if HD6309_TRACE > 1
-		if (!waitflags && ++tracep >= tracebuf + TRACEMAX - 1) StopTrace();
+		if (++tracep >= tracebuf + TRACEMAX - 1) StopTrace();
 #else
-		if (!waitflags && ++tracep >= tracebuf + TRACEMAX) tracep = tracebuf;
+		if (++tracep >= tracebuf + TRACEMAX) tracep = tracebuf;
 #endif
 #endif
-	} while (!waitflags && clock < n);
-	return waitflags ? 0 : clock - n;
+	} while (clock < n);
+	return clock - n;
 }
 
 template<int M> HD6309::u16 HD6309::fset(u16 a, u16 d, u16 s) {
@@ -1097,7 +1097,7 @@ template<int M> HD6309::u16 HD6309::fset(u16 a, u16 d, u16 s) {
 		cc &= ~MC;
 	if constexpr ((M & 0xf) == C1)
 		cc |= MC;
-	if constexpr ((M & 0xf) == CB) {
+	if constexpr ((M & 0xf) == CD) {
 		if (d & 1) cc |= MC;
 		else cc &= ~MC;
 	}
@@ -1145,7 +1145,7 @@ template<int M> HD6309::u16 HD6309::fset(u16 a, u16 d, u16 s) {
 		cc &= ~MV;
 	if constexpr ((M & 0xf0) == V1)
 		cc |= MV;
-	if constexpr ((M & 0xf0) == VB) {
+	if constexpr ((M & 0xf0) == VD) {
 		if (d) cc |= MV;
 		else cc &= ~MV;
 	}
