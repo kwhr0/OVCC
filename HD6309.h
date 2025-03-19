@@ -1,5 +1,5 @@
 // HD6309
-// Copyright 2022-2024 © Yasuo Kuwahara
+// Copyright 2022-2025 © Yasuo Kuwahara
 // MIT License
 
 #include "tcc1014mmu.h"		// OVCC
@@ -26,6 +26,27 @@ class HD6309 {
 	using u32 = uint32_t;
 	enum { M_SYNC = 1, M_IRQ = 2, M_FIRQ = 4, M_NMI = 8 };
 	enum { W_SYNC = 1, W_CWAI };
+	enum {
+		LC, LV, LZ, LN, LI, LH, LF, LE
+	};
+	enum {
+		MC = 1 << LC, MV = 1 << LV, MZ = 1 << LZ, MN = 1 << LN,
+		MI = 1 << LI, MH = 1 << LH, MF = 1 << LF, ME = 1 << LE
+	};
+	enum {
+		FD = 1, F0, F1, FDEF, FADD, FSUB, FMUL, FDIV, FLEFT
+	};
+	#define F(flag, type)	flag##type = F##type << (L##flag << 2)
+	enum {
+		F(C, D), F(C, 0), F(C, 1), F(C, DEF), F(C, ADD), F(C, SUB),
+		F(C, LEFT), F(C, MUL), F(C, DIV),
+		F(V, D), F(V, 0), F(V, 1), F(V, DEF), F(V, ADD), F(V, SUB),
+		F(V, LEFT),
+		F(Z, 0), F(Z, 1), F(Z, DEF),
+		F(N, 0), F(N, DEF),
+		F(H, ADD)
+	};
+	#undef F
 public:
 	HD6309();
 	void Reset();
@@ -78,6 +99,18 @@ private:
 		HD6309_TRACE_LOG(adr, data, acsStore16);
 	}
 	// customized access -- end
+	template<int S = 0> void fnz(u16 a) { fset<NDEF | ZDEF, S>(a); }
+	template<int S = 0> void fmov(u16 a, u16 d = 0) { fset<NDEF | ZDEF | V0, S>(a, d); }
+	template<int S = 0> u16 fadd(u16 a, u16 d, u16 s) { return fset<NDEF | ZDEF | VADD | CADD, S>(a, d, s); }
+	template<int S = 0> u16 fsub(u16 a, u16 d, u16 s) { return fset<NDEF | ZDEF | VSUB | CSUB, S>(a, d, s); }
+	template<int S = 0> void fneg(u16 a) { fset<NDEF | ZDEF | VDEF | CDEF, S>(a); }
+	template<int S = 0> u16 finc(u16 a, u16 d) { return fset<NDEF | ZDEF | VADD, S>(a, d); }
+	template<int S = 0> u16 fdec(u16 a, u16 d) { return fset<NDEF | ZDEF | VSUB, S>(a, d); }
+	template<int S = 0> void fcom(u16 a) { fset<NDEF | ZDEF | V0 | C1, S>(a); }
+	template<int S = 0> void fdiv(u16 a, u16 d) { fset<NDEF | ZDEF | VD | CDIV, S>(a, d); }
+	template<int S = 0> u16 fleft(u16 a, u16 d) { return fset<NDEF | ZDEF | VLEFT | CLEFT, S>(a, d); }
+	template<int S = 0> u16 fright(u16 a, u16 d) { return fset<NDEF | ZDEF | CD, S>(a, d); }
+	//
 	u16 ea();
 	template<typename T> void bcc(T cond) { (u16 &)r[10] += cond() ? (s8)imm8() : 1; }
 	template<typename T> void lbcc(T cond) { (u16 &)r[10] += cond() ? imm16() : 2; }
@@ -91,7 +124,7 @@ private:
 	void divd(s8 s);
 	void divq(s16 s);
 	void tfm(int s, int d);
-	template<int M> u16 fset(u16 a = 0, u16 d = 0, u16 s = 0);
+	template<int M, int SI = 0> u16 fset(u16 a = 0, u16 d = 0, u16 s = 0);
 //
 	const u8 *clktbl, *clktbl10, *clktbl11, *clktblea;
 	u8 r[16];

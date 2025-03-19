@@ -1,5 +1,5 @@
 // HD6309
-// Copyright 2022-2024 © Yasuo Kuwahara
+// Copyright 2022-2025 © Yasuo Kuwahara
 // MIT License
 
 #include "HD6309.h"
@@ -7,60 +7,12 @@
 #include <cstdlib>
 #include <cstring>
 
-enum {
-	LC, LV, LZ, LN, LI, LH, LF, LE
-};
-
-enum {
-	MC = 1 << LC, MV = 1 << LV, MZ = 1 << LZ, MN = 1 << LN,
-	MI = 1 << LI, MH = 1 << LH, MF = 1 << LF, ME = 1 << LE
-};
-
-enum {
-	FD = 1, F0, F1, F8, F16, F32, FADD8, FSUB8, FADD16, FSUB16, FMUL, FDIV, FLEFT8, FLEFT16
-};
-
-#define F(flag, type)	flag##type = F##type << (L##flag << 2)
-enum {
-	F(C, D), F(C, 0), F(C, 1), F(C, 8), F(C, 16), F(C, ADD8), F(C, SUB8), F(C, ADD16), F(C, SUB16),
-	F(C, LEFT8), F(C, LEFT16), F(C, MUL), F(C, DIV),
-	F(V, D), F(V, 0), F(V, 1), F(V, 8), F(V, 16), F(V, ADD8), F(V, SUB8), F(V, ADD16), F(V, SUB16),
-	F(V, LEFT8), F(V, LEFT16),
-	F(Z, 0), F(Z, 1), F(Z, 8), F(Z, 16), F(Z, 32),
-	F(N, 0), F(N, 8), F(N, 16),
-	F(H, ADD8)
-};
-#undef F
-
 #define fclr()			fset<N0 | Z1 | V0 | C0>()
-#define fnz8(a)			fset<N8 | Z8>(a)
-#define fnz16(a)		fset<N16 | Z16>(a)
-#define fz16(a)			fset<Z16>(a)
-#define fmov8(a)		fset<N8 | Z8 | V0>(a)
-#define fmov16(a)		fset<N16 | Z16 | V0>(a)
-#define fmov32(a, d)	fset<N16 | Z32 | V0>(a, d)
-#define fadd8(a, d, s)	fset<HADD8 | N8 | Z8 | VADD8 | CADD8>(a, d, s)
-#define fadd8r(a, d, s)	fset<N8 | Z8 | VADD8 | CADD8>(a, d, s)
-#define fadd16(a, d, s)	fset<N16 | Z16 | VADD16 | CADD16>(a, d, s)
-#define fsub8(a, d, s)	fset<N8 | Z8 | VSUB8 | CSUB8>(a, d, s)
-#define fsub16(a, d, s)	fset<N16 | Z16 | VSUB16 | CSUB16>(a, d, s)
-#define fmul(a)			fset<Z16 | CMUL>(a)
-#define fdiv(a, d)		fset<N8 | Z8 | VD | CDIV>(a, d)
-#define fdiv16(a, d)	fset<N16 | Z16 | VD | CDIV>(a, d)
-#define fleft8(a, d)	fset<N8 | Z8 | VLEFT8 | CLEFT8>(a, d)
-#define fleft16(a, d)	fset<N16 | Z16 | VLEFT16 | CLEFT16>(a, d)
-#define fright8(a, d)	fset<N8 | Z8 | CD>(a, d)
-#define fright16(a, d)	fset<N16 | Z16 | CD>(a, d)
-#define finc8(a, d)		fset<N8 | Z8 | VADD8>(a, d)
-#define finc16(a, d)	fset<N16 | Z16 | VADD16>(a, d)
-#define fdec8(a, d)		fset<N8 | Z8 | VSUB8>(a, d)
-#define fdec16(a, d)	fset<N16 | Z16 | VSUB16>(a, d)
+#define fz16(a)			fset<ZDEF, 1>(a)
+#define faddh(a, d, s)	fset<HADD | NDEF | ZDEF | VADD | CADD>(a, d, s)
+#define fmul(a)			fset<ZDEF | CMUL, 1>(a)
 #define fdivro()		fset<N0 | Z0 | V1 | C0>()
-#define fneg8(a)		fset<N8 | Z8 | V8 | C8>(a)
-#define fneg16(a)		fset<N16 | Z16 | V16 | C16>(a)
-#define fcom8(a)		fset<N8 | Z8 | V0 | C1>(a)
-#define fcom16(a)		fset<N16 | Z16 | V0 | C1>(a)
-#define fdaa(a, d)		fset<N8 | Z8 | CADD8>(a, d)
+#define fdaa(a, d)		fset<NDEF | ZDEF | CADD>(a, d)
 
 #define CY				(cc & MC)
 #define CLOCK(x)		(clock += (x))
@@ -441,7 +393,7 @@ void HD6309::divq(s16 s) {
 	int v = t != (s16)t;
 	D = d % s;
 	W = t;
-	fdiv16(W, v);
+	fdiv<1>(W, v);
 	CLOCK(-v);
 }
 
@@ -526,48 +478,48 @@ void HD6309::ProcessInterrupt() {
 
 int HD6309::Execute(int n) {
 	// instructions
-	auto add8 = [&](u8 &d, u8 s) { d = fadd8(d + s, d, s); };
-	auto add8r = [&](u8 &d, u8 s) { d = fadd8r(d + s, d, s); };
-	auto add16 = [&](u16 &d, u16 s) { d = fadd16(d + s, d, s); };
-	auto adc8 = [&](u8 &d, u8 s) { d = fadd8(d + s + CY, d, s); };
-	auto adc8r = [&](u8 &d, u8 s) { d = fadd8r(d + s + CY, d, s); };
-	auto adc16 = [&](u16 &d, u16 s) { d = fadd16(d + s + CY, d, s); };
-	auto sub8 = [&](u8 &d, u8 s) { d = fsub8(d - s, d, s); };
-	auto sub16 = [&](u16 &d, u16 s) { d = fsub16(d - s, d, s); };
-	auto sbc8 = [&](u8 &d, u8 s) { d = fsub8(d - s - CY, d, s); };
-	auto sbc16 = [&](u16 &d, u16 s) { d = fsub16(d - s - CY, d, s); };
-	auto cmp8 = [&](u8 d, u8 s) { fsub8(d - s, d, s); };
-	auto cmp16 = [&](u16 d, u16 s) { fsub16(d - s, d, s); };
-	auto muld = [&](s16 s) { s32 t = (s16)D * s; fnz16(D = t >> 16); W = t; }; // undocumented
-	auto incm = [&](u16 a) { u8 t = ld8(a); st8(a, finc8(t + 1, t)); };
-	auto decm = [&](u16 a) { u8 t = ld8(a); st8(a, fdec8(t - 1, t)); };
-	auto negm = [&](u16 a) { u8 t = -ld8(a); fneg8(t); st8(a, t); };
+	auto add8 = [&](u8 &d, u8 s) { d = faddh(d + s, d, s); };
+	auto add8r = [&](u8 &d, u8 s) { d = fadd(d + s, d, s); };
+	auto add16 = [&](u16 &d, u16 s) { d = fadd<1>(d + s, d, s); };
+	auto adc8 = [&](u8 &d, u8 s) { d = faddh(d + s + CY, d, s); };
+	auto adc8r = [&](u8 &d, u8 s) { d = fadd(d + s + CY, d, s); };
+	auto adc16 = [&](u16 &d, u16 s) { d = fadd<1>(d + s + CY, d, s); };
+	auto sub8 = [&](u8 &d, u8 s) { d = fsub(d - s, d, s); };
+	auto sub16 = [&](u16 &d, u16 s) { d = fsub<1>(d - s, d, s); };
+	auto sbc8 = [&](u8 &d, u8 s) { d = fsub(d - s - CY, d, s); };
+	auto sbc16 = [&](u16 &d, u16 s) { d = fsub<1>(d - s - CY, d, s); };
+	auto cmp8 = [&](u8 d, u8 s) { fsub(d - s, d, s); };
+	auto cmp16 = [&](u16 d, u16 s) { fsub<1>(d - s, d, s); };
+	auto muld = [&](s16 s) { s32 t = (s16)D * s; fnz<1>(D = t >> 16); W = t; }; // undocumented
+	auto incm = [&](u16 a) { u8 t = ld8(a); st8(a, finc(t + 1, t)); };
+	auto decm = [&](u16 a) { u8 t = ld8(a); st8(a, fdec(t - 1, t)); };
+	auto negm = [&](u16 a) { u8 t = -ld8(a); fneg(t); st8(a, t); };
 	auto clrm = [&](u16 a) { st8(a, 0); fclr(); };
-	auto tstm = [&](u16 a) { fmov8(ld8(a)); };
-	auto and8 = [&](u8 &d, u8 s) { fmov8(d &= s); };
-	auto and16 = [&](u16 &d, u16 s) { fmov16(d &= s); };
-	auto or8 = [&](u8 &d, u8 s) { fmov8(d |= s); };
-	auto or16 = [&](u16 &d, u16 s) { fmov16(d |= s); };
-	auto eor8 = [&](u8 &d, u8 s) { fmov8(d ^= s); };
-	auto eor16 = [&](u16 &d, u16 s) { fmov16(d ^= s); };
-	auto comm = [&](u16 a) { u8 t = ~ld8(a); fcom8(t); st8(a, t); };
-	auto lsl = [&](u8 &r) { r = fleft8(r << 1, r); };
-	auto lsr = [&](u8 &r) { r = fright8(r >> 1, r); };
-	auto asr = [&](u8 &r) { r = fright8((s8)r >> 1, r); };
-	auto rol = [&](u8 &r) { r = fleft8(r << 1 | CY, r); };
-	auto ror = [&](u8 &r) { r = fright8(r >> 1 | CY << 7, r); };
-	auto lslm = [&](u16 a) { u8 t = ld8(a); st8(a, fleft8(t << 1, t)); };
-	auto lsrm = [&](u16 a) { u8 t = ld8(a); st8(a, fright8(t >> 1, t)); };
-	auto asrm = [&](u16 a) { s8 t = ld8(a); st8(a, fright8(t >> 1, t)); };
-	auto rolm = [&](u16 a) { u8 t = ld8(a); st8(a, fleft8(t << 1 | CY, t)); };
-	auto rorm = [&](u16 a) { u8 t = ld8(a); st8(a, fright8(t >> 1 | CY << 7, t)); };
+	auto tstm = [&](u16 a) { fmov(ld8(a)); };
+	auto and8 = [&](u8 &d, u8 s) { fmov(d &= s); };
+	auto and16 = [&](u16 &d, u16 s) { fmov<1>(d &= s); };
+	auto or8 = [&](u8 &d, u8 s) { fmov(d |= s); };
+	auto or16 = [&](u16 &d, u16 s) { fmov<1>(d |= s); };
+	auto eor8 = [&](u8 &d, u8 s) { fmov(d ^= s); };
+	auto eor16 = [&](u16 &d, u16 s) { fmov<1>(d ^= s); };
+	auto comm = [&](u16 a) { u8 t = ~ld8(a); fcom(t); st8(a, t); };
+	auto lsl = [&](u8 &r) { r = fleft(r << 1, r); };
+	auto lsr = [&](u8 &r) { r = fright(r >> 1, r); };
+	auto asr = [&](u8 &r) { r = fright((s8)r >> 1, r); };
+	auto rol = [&](u8 &r) { r = fleft(r << 1 | CY, r); };
+	auto ror = [&](u8 &r) { r = fright(r >> 1 | CY << 7, r); };
+	auto lslm = [&](u16 a) { u8 t = ld8(a); st8(a, fleft(t << 1, t)); };
+	auto lsrm = [&](u16 a) { u8 t = ld8(a); st8(a, fright(t >> 1, t)); };
+	auto asrm = [&](u16 a) { s8 t = ld8(a); st8(a, fright(t >> 1, t)); };
+	auto rolm = [&](u16 a) { u8 t = ld8(a); st8(a, fleft(t << 1 | CY, t)); };
+	auto rorm = [&](u16 a) { u8 t = ld8(a); st8(a, fright(t >> 1 | CY << 7, t)); };
 	auto jsr = [&](u16 a) { st16r(S -= 2, PC); PC = a; };
-	auto ldq = [&](u32 s) { fnz16(D = s >> 16); W = s; }; // undocumented
-	auto stq = [&](u16 a) { fmov32(D, W); st16(a, D); st16(a + 2, W); };
-	auto aim = [&](u8 m, u16 a) { fmov8(m &= ld8(a)); st8(a, m); };
-	auto oim = [&](u8 m, u16 a) { fmov8(m |= ld8(a)); st8(a, m); };
-	auto eim = [&](u8 m, u16 a) { fmov8(m ^= ld8(a)); st8(a, m); };
-	auto tim = [&](u8 m, u16 a) { fmov8(ld8(a) & m); };
+	auto ldq = [&](u32 s) { fnz<1>(D = s >> 16); W = s; }; // undocumented
+	auto stq = [&](u16 a) { fmov<2>(D, W); st16(a, D); st16(a + 2, W); };
+	auto aim = [&](u8 m, u16 a) { fmov(m &= ld8(a)); st8(a, m); };
+	auto oim = [&](u8 m, u16 a) { fmov(m |= ld8(a)); st8(a, m); };
+	auto eim = [&](u8 m, u16 a) { fmov(m ^= ld8(a)); st8(a, m); };
+	auto tim = [&](u8 m, u16 a) { fmov(ld8(a) & m); };
 	// conditions
 	auto _c = [&]{ return !(cc & MC); };
 	auto lo = [&]{ return cc & MC; };
@@ -614,7 +566,7 @@ int HD6309::Execute(int n) {
 			case 0x0f: clrm(da()); break;
 			case 0x12: break; // nop
 			case 0x13: waitflags |= W_SYNC; PC--; return 0;
-			case 0x14: D = (s16)W >> 15; fnz16(W); break;
+			case 0x14: D = (s16)W >> 15; fnz<1>(W); break;
 			case 0x16: t16 = imm16(); PC += t16; break;
 			case 0x17: t16 = imm16(); st16r(S -= 2, PC); PC += t16; break;
 			case 0x19: // daa
@@ -625,7 +577,7 @@ int HD6309::Execute(int n) {
 				break;
 			case 0x1a: cc |= imm8(); break;
 			case 0x1c: cc &= imm8(); break;
-			case 0x1d: fnz8(D = (s8)B); break;
+			case 0x1d: fnz(D = (s8)B); break;
 			case 0x1e: case 0x1f: transfer(op, imm8()); break;
 			case 0x20: bcc([]{ return true; }); break; // bra
 			case 0x21: bcc([]{ return false; }); break; // brn
@@ -668,27 +620,27 @@ int HD6309::Execute(int n) {
 				return 0;
 			case 0x3d: fmul(D = A * B); break;
 			case 0x3f: trap(0xfffa); break; // swi
-			case 0x40: fneg8(A = -A); break;
-			case 0x43: fcom8(A = ~A); break;
+			case 0x40: fneg(A = -A); break;
+			case 0x43: fcom(A = ~A); break;
 			case 0x44: lsr(A); break;
 			case 0x46: ror(A); break;
 			case 0x47: asr(A); break;
 			case 0x48: lsl(A); break;
 			case 0x49: rol(A); break;
-			case 0x4a: A = fdec8(A - 1, A); break;
-			case 0x4c: A = finc8(A + 1, A); break;
-			case 0x4d: fmov8(A); break;
+			case 0x4a: A = fdec(A - 1, A); break;
+			case 0x4c: A = finc(A + 1, A); break;
+			case 0x4d: fmov(A); break;
 			case 0x4f: A = 0; fclr(); break;
-			case 0x50: fneg8(B = -B); break;
-			case 0x53: fcom8(B = ~B); break;
+			case 0x50: fneg(B = -B); break;
+			case 0x53: fcom(B = ~B); break;
 			case 0x54: lsr(B); break;
 			case 0x56: ror(B); break;
 			case 0x57: asr(B); break;
 			case 0x58: lsl(B); break;
 			case 0x59: rol(B); break;
-			case 0x5a: B = fdec8(B - 1, B); break;
-			case 0x5c: B = finc8(B + 1, B); break;
-			case 0x5d: fmov8(B); break;
+			case 0x5a: B = fdec(B - 1, B); break;
+			case 0x5c: B = finc(B + 1, B); break;
+			case 0x5d: fmov(B); break;
 			case 0x5f: B = 0; fclr(); break;
 			case 0x60: negm(ea()); break;
 			case 0x61: t8 = imm8(); oim(t8, ea()); break;
@@ -727,125 +679,125 @@ int HD6309::Execute(int n) {
 			case 0x82: sbc8(A, imm8()); break;
 			case 0x83: sub16(D, imm16()); break;
 			case 0x84: and8(A, imm8()); break;
-			case 0x85: fmov8(A & imm8()); break;
-			case 0x86: fmov8(A = imm8()); break;
+			case 0x85: fmov(A & imm8()); break;
+			case 0x86: fmov(A = imm8()); break;
 			case 0x88: eor8(A, imm8()); break;
 			case 0x89: adc8(A, imm8()); break;
 			case 0x8a: or8(A, imm8()); break;
 			case 0x8b: add8(A, imm8()); break;
 			case 0x8c: cmp16(X, imm16()); break;
 			case 0x8d: t8 = imm8(); st16r(S -= 2, PC); PC += t8; break;
-			case 0x8e: fmov16(X = imm16()); break;
+			case 0x8e: fmov<1>(X = imm16()); break;
 			case 0x90: sub8(A, ld8(da())); break;
 			case 0x91: cmp8(A, ld8(da())); break;
 			case 0x92: sbc8(A, ld8(da())); break;
 			case 0x93: sub16(D, ld16(da())); break;
 			case 0x94: and8(A, ld8(da())); break;
-			case 0x95: fmov8(A & ld8(da())); break;
-			case 0x96: fmov8(A = ld8(da())); break;
-			case 0x97: fmov8(A); st8(da(), A); break;
+			case 0x95: fmov(A & ld8(da())); break;
+			case 0x96: fmov(A = ld8(da())); break;
+			case 0x97: fmov(A); st8(da(), A); break;
 			case 0x98: eor8(A, ld8(da())); break;
 			case 0x99: adc8(A, ld8(da())); break;
 			case 0x9a: or8(A, ld8(da())); break;
 			case 0x9b: add8(A, ld8(da())); break;
 			case 0x9c: cmp16(X, ld16(da())); break;
 			case 0x9d: jsr(da()); break;
-			case 0x9e: fmov16(X = ld16(da())); break;
-			case 0x9f: fmov16(X); st16(da(), X); break;
+			case 0x9e: fmov<1>(X = ld16(da())); break;
+			case 0x9f: fmov<1>(X); st16(da(), X); break;
 			case 0xa0: sub8(A, ld8(ea())); break;
 			case 0xa1: cmp8(A, ld8(ea())); break;
 			case 0xa2: sbc8(A, ld8(ea())); break;
 			case 0xa3: sub16(D, ld16(ea())); break;
 			case 0xa4: and8(A, ld8(ea())); break;
-			case 0xa5: fmov8(A & ld8(ea())); break;
-			case 0xa6: fmov8(A = ld8(ea())); break;
-			case 0xa7: fmov8(A); st8(ea(), A); break;
+			case 0xa5: fmov(A & ld8(ea())); break;
+			case 0xa6: fmov(A = ld8(ea())); break;
+			case 0xa7: fmov(A); st8(ea(), A); break;
 			case 0xa8: eor8(A, ld8(ea())); break;
 			case 0xa9: adc8(A, ld8(ea())); break;
 			case 0xaa: or8(A, ld8(ea())); break;
 			case 0xab: add8(A, ld8(ea())); break;
 			case 0xac: cmp16(X, ld16(ea())); break;
 			case 0xad: jsr(ea()); break;
-			case 0xae: fmov16(X = ld16(ea())); break;
-			case 0xaf: fmov16(X); st16(ea(), X); break;
+			case 0xae: fmov<1>(X = ld16(ea())); break;
+			case 0xaf: fmov<1>(X); st16(ea(), X); break;
 			case 0xb0: sub8(A, ld8(imm16())); break;
 			case 0xb1: cmp8(A, ld8(imm16())); break;
 			case 0xb2: sbc8(A, ld8(imm16())); break;
 			case 0xb3: sub16(D, ld16(imm16())); break;
 			case 0xb4: and8(A, ld8(imm16())); break;
-			case 0xb5: fmov8(A & ld8(imm16())); break;
-			case 0xb6: fmov8(A = ld8(imm16())); break;
-			case 0xb7: fmov8(A); st8(imm16(), A); break;
+			case 0xb5: fmov(A & ld8(imm16())); break;
+			case 0xb6: fmov(A = ld8(imm16())); break;
+			case 0xb7: fmov(A); st8(imm16(), A); break;
 			case 0xb8: eor8(A, ld8(imm16())); break;
 			case 0xb9: adc8(A, ld8(imm16())); break;
 			case 0xba: or8(A, ld8(imm16())); break;
 			case 0xbb: add8(A, ld8(imm16())); break;
 			case 0xbc: cmp16(X, ld16(imm16())); break;
 			case 0xbd: jsr(imm16()); break;
-			case 0xbe: fmov16(X = ld16(imm16())); break;
-			case 0xbf: fmov16(X); st16(imm16(), X); break;
+			case 0xbe: fmov<1>(X = ld16(imm16())); break;
+			case 0xbf: fmov<1>(X); st16(imm16(), X); break;
 			case 0xc0: sub8(B, imm8()); break;
 			case 0xc1: cmp8(B, imm8()); break;
 			case 0xc2: sbc8(B, imm8()); break;
 			case 0xc3: add16(D, imm16()); break;
 			case 0xc4: and8(B, imm8()); break;
-			case 0xc5: fmov8(B & imm8()); break;
-			case 0xc6: fmov8(B = imm8()); break;
+			case 0xc5: fmov(B & imm8()); break;
+			case 0xc6: fmov(B = imm8()); break;
 			case 0xc8: eor8(B, imm8()); break;
 			case 0xc9: adc8(B, imm8()); break;
 			case 0xca: or8(B, imm8()); break;
 			case 0xcb: add8(B, imm8()); break;
-			case 0xcc: fmov16(D = imm16()); break;
+			case 0xcc: fmov<1>(D = imm16()); break;
 			case 0xcd: t32 = imm16() << 16; ldq(t32 | imm16()); break;
-			case 0xce: fmov16(U = imm16()); break;
+			case 0xce: fmov<1>(U = imm16()); break;
 			case 0xd0: sub8(B, ld8(da())); break;
 			case 0xd1: cmp8(B, ld8(da())); break;
 			case 0xd2: sbc8(B, ld8(da())); break;
 			case 0xd3: add16(D, ld16(da())); break;
 			case 0xd4: and8(B, ld8(da())); break;
-			case 0xd5: fmov8(B & ld8(da())); break;
-			case 0xd6: fmov8(B = ld8(da())); break;
-			case 0xd7: fmov8(B); st8(da(), B); break;
+			case 0xd5: fmov(B & ld8(da())); break;
+			case 0xd6: fmov(B = ld8(da())); break;
+			case 0xd7: fmov(B); st8(da(), B); break;
 			case 0xd8: eor8(B, ld8(da())); break;
 			case 0xd9: adc8(B, ld8(da())); break;
 			case 0xda: or8(B, ld8(da())); break;
 			case 0xdb: add8(B, ld8(da())); break;
-			case 0xdc: fmov16(D = ld16(da())); break;
-			case 0xdd: fmov16(D); st16(da(), D); break;
-			case 0xde: fmov16(U = ld16(da())); break;
-			case 0xdf: fmov16(U); st16(da(), U); break;
+			case 0xdc: fmov<1>(D = ld16(da())); break;
+			case 0xdd: fmov<1>(D); st16(da(), D); break;
+			case 0xde: fmov<1>(U = ld16(da())); break;
+			case 0xdf: fmov<1>(U); st16(da(), U); break;
 			case 0xe0: sub8(B, ld8(ea())); break;
 			case 0xe1: cmp8(B, ld8(ea())); break;
 			case 0xe2: sbc8(B, ld8(ea())); break;
 			case 0xe3: add16(D, ld16(ea())); break;
 			case 0xe4: and8(B, ld8(ea())); break;
-			case 0xe5: fmov8(B & ld8(ea())); break;
-			case 0xe6: fmov8(B = ld8(ea())); break;
-			case 0xe7: fmov8(B); st8(ea(), B); break;
+			case 0xe5: fmov(B & ld8(ea())); break;
+			case 0xe6: fmov(B = ld8(ea())); break;
+			case 0xe7: fmov(B); st8(ea(), B); break;
 			case 0xe8: eor8(B, ld8(ea())); break;
 			case 0xe9: adc8(B, ld8(ea())); break;
 			case 0xea: or8(B, ld8(ea())); break;
 			case 0xeb: add8(B, ld8(ea())); break;
-			case 0xec: fmov16(D = ld16(ea())); break;
-			case 0xed: fmov16(D); st16(ea(), D); break;
-			case 0xee: fmov16(U = ld16(ea())); break;
-			case 0xef: fmov16(U); st16(ea(), U); break;
+			case 0xec: fmov<1>(D = ld16(ea())); break;
+			case 0xed: fmov<1>(D); st16(ea(), D); break;
+			case 0xee: fmov<1>(U = ld16(ea())); break;
+			case 0xef: fmov<1>(U); st16(ea(), U); break;
 			case 0xf0: sub8(B, ld8(imm16())); break;
 			case 0xf1: cmp8(B, ld8(imm16())); break;
 			case 0xf2: sbc8(B, ld8(imm16())); break;
 			case 0xf3: add16(D, ld16(imm16())); break;
 			case 0xf4: and8(B, ld8(imm16())); break;
-			case 0xf5: fmov8(B & ld8(imm16())); break;
-			case 0xf6: fmov8(B = ld8(imm16())); break;
-			case 0xf7: fmov8(B); st8(imm16(), B); break;
+			case 0xf5: fmov(B & ld8(imm16())); break;
+			case 0xf6: fmov(B = ld8(imm16())); break;
+			case 0xf7: fmov(B); st8(imm16(), B); break;
 			case 0xf8: eor8(B, ld8(imm16())); break;
 			case 0xf9: adc8(B, ld8(imm16())); break;
 			case 0xfa: or8(B, ld8(imm16())); break;
 			case 0xfb: add8(B, ld8(imm16())); break;
-			case 0xfc: fmov16(D = ld16(imm16())); break;
-			case 0xfd: fmov16(D); st16(imm16(), D); break;
-			case 0xfe: fmov16(U = ld16(imm16())); break;
-			case 0xff: fmov16(U); st16(imm16(), U); break;
+			case 0xfc: fmov<1>(D = ld16(imm16())); break;
+			case 0xfd: fmov<1>(D); st16(imm16(), D); break;
+			case 0xfe: fmov<1>(U = ld16(imm16())); break;
+			case 0xff: fmov<1>(U); st16(imm16(), U); break;
 			case 0x10:
 				op = imm8();
 				switch (op) {
@@ -877,96 +829,96 @@ int HD6309::Execute(int n) {
 					case 0x3a: st16r(U -= 2, W); break;
 					case 0x3b: W = ld16(U); U += 2; break;
 					case 0x3f: trap(0xfff4, 0xff, 0); break; // swi2
-					case 0x40: fneg16(D = -D); break;
-					case 0x43: fcom16(D = ~D); break;
-					case 0x44: D = fright16(D >> 1, D); break;
-					case 0x46: D = fright16(D >> 1 | CY << 15, D); break;
-					case 0x47: D = fright16((s16)D >> 1, D); break;
-					case 0x48: D = fleft16(D << 1, D); break;
-					case 0x49: D = fleft16(D << 1 | CY, D); break;
-					case 0x4a: D = fdec16(D - 1, D); break;
-					case 0x4c: D = finc16(D + 1, D); break;
-					case 0x4d: fmov16(D); break;
+					case 0x40: fneg<1>(D = -D); break;
+					case 0x43: fcom<1>(D = ~D); break;
+					case 0x44: D = fright<1>(D >> 1, D); break;
+					case 0x46: D = fright<1>(D >> 1 | CY << 15, D); break;
+					case 0x47: D = fright<1>((s16)D >> 1, D); break;
+					case 0x48: D = fleft<1>(D << 1, D); break;
+					case 0x49: D = fleft<1>(D << 1 | CY, D); break;
+					case 0x4a: D = fdec<1>(D - 1, D); break;
+					case 0x4c: D = finc<1>(D + 1, D); break;
+					case 0x4d: fmov<1>(D); break;
 					case 0x4f: D = 0; fclr(); break;
-					case 0x53: fcom16(W = ~W); break;
-					case 0x54: W = fright16(W >> 1, W); break;
-					case 0x56: W = fright16(W >> 1 | CY << 15, W); break;
-					case 0x59: W = fleft16(W << 1 | CY, W); break;
-					case 0x5a: W = fdec16(W - 1, W); break;
-					case 0x5c: W = finc16(W + 1, W); break;
-					case 0x5d: fmov16(W); break;
+					case 0x53: fcom<1>(W = ~W); break;
+					case 0x54: W = fright<1>(W >> 1, W); break;
+					case 0x56: W = fright<1>(W >> 1 | CY << 15, W); break;
+					case 0x59: W = fleft<1>(W << 1 | CY, W); break;
+					case 0x5a: W = fdec<1>(W - 1, W); break;
+					case 0x5c: W = finc<1>(W + 1, W); break;
+					case 0x5d: fmov<1>(W); break;
 					case 0x5f: W = 0; fclr(); break;
 					case 0x80: sub16(W, imm16()); break;
 					case 0x81: cmp16(W, imm16()); break;
 					case 0x82: sbc16(D, imm16()); break;
 					case 0x83: cmp16(D, imm16()); break;
-					case 0x84: fmov16(D &= imm16()); break;
-					case 0x85: fmov16(D & imm16()); break;
-					case 0x86: fmov16(W = imm16()); break;
+					case 0x84: fmov<1>(D &= imm16()); break;
+					case 0x85: fmov<1>(D & imm16()); break;
+					case 0x86: fmov<1>(W = imm16()); break;
 					case 0x88: eor16(D, imm16()); break;
 					case 0x89: adc16(D, imm16()); break;
 					case 0x8a: or16(D, imm16()); break;
 					case 0x8b: add16(W, imm16()); break;
 					case 0x8c: cmp16(Y, imm16()); break;
-					case 0x8e: fmov16(Y = imm16()); break;
+					case 0x8e: fmov<1>(Y = imm16()); break;
 					case 0x90: sub16(W, ld16(da())); break;
 					case 0x91: cmp16(W, ld16(da())); break;
 					case 0x92: sbc16(D, ld16(da())); break;
 					case 0x93: cmp16(D, ld16(da())); break;
-					case 0x94: fmov16(D &= ld16(da())); break;
-					case 0x95: fmov16(D & ld16(da())); break;
-					case 0x96: fmov16(W = ld16(da())); break;
-					case 0x97: fmov16(W); st16(da(), W); break;
+					case 0x94: fmov<1>(D &= ld16(da())); break;
+					case 0x95: fmov<1>(D & ld16(da())); break;
+					case 0x96: fmov<1>(W = ld16(da())); break;
+					case 0x97: fmov<1>(W); st16(da(), W); break;
 					case 0x98: eor16(D, ld16(da())); break;
 					case 0x99: adc16(D, ld16(da())); break;
 					case 0x9a: or16(D, ld16(da())); break;
 					case 0x9b: add16(W, ld16(da())); break;
 					case 0x9c: cmp16(Y, ld16(da())); break;
-					case 0x9e: fmov16(Y = ld16(da())); break;
-					case 0x9f: fmov16(Y); st16(da(), Y); break;
+					case 0x9e: fmov<1>(Y = ld16(da())); break;
+					case 0x9f: fmov<1>(Y); st16(da(), Y); break;
 					case 0xa0: sub16(W, ld16(ea())); break;
 					case 0xa1: cmp16(W, ld16(ea())); break;
 					case 0xa2: sbc16(D, ld16(ea())); break;
 					case 0xa3: cmp16(D, ld16(ea())); break;
-					case 0xa4: fmov16(D &= ld16(ea())); break;
-					case 0xa5: fmov16(D & ld16(ea())); break;
-					case 0xa6: fmov16(W = ld16(ea())); break;
-					case 0xa7: fmov16(W); st16(ea(), W); break;
+					case 0xa4: fmov<1>(D &= ld16(ea())); break;
+					case 0xa5: fmov<1>(D & ld16(ea())); break;
+					case 0xa6: fmov<1>(W = ld16(ea())); break;
+					case 0xa7: fmov<1>(W); st16(ea(), W); break;
 					case 0xa8: eor16(D, ld16(ea())); break;
 					case 0xa9: adc16(D, ld16(ea())); break;
 					case 0xaa: or16(D, ld16(ea())); break;
 					case 0xab: add16(W, ld16(ea())); break;
 					case 0xac: cmp16(Y, ld16(ea())); break;
-					case 0xae: fmov16(Y = ld16(ea())); break;
-					case 0xaf: fmov16(Y); st16(ea(), Y); break;
+					case 0xae: fmov<1>(Y = ld16(ea())); break;
+					case 0xaf: fmov<1>(Y); st16(ea(), Y); break;
 					case 0xb0: sub16(W, ld16(imm16())); break;
 					case 0xb1: cmp16(W, ld16(imm16())); break;
 					case 0xb2: sbc16(D, ld16(imm16())); break;
 					case 0xb3: cmp16(D, ld16(imm16())); break;
-					case 0xb4: fmov16(D &= ld16(imm16())); break;
-					case 0xb5: fmov16(D & ld16(imm16())); break;
-					case 0xb6: fmov16(W = ld16(imm16())); break;
-					case 0xb7: fmov16(W); st16(imm16(), W); break;
+					case 0xb4: fmov<1>(D &= ld16(imm16())); break;
+					case 0xb5: fmov<1>(D & ld16(imm16())); break;
+					case 0xb6: fmov<1>(W = ld16(imm16())); break;
+					case 0xb7: fmov<1>(W); st16(imm16(), W); break;
 					case 0xb8: eor16(D, ld16(imm16())); break;
 					case 0xb9: adc16(D, ld16(imm16())); break;
 					case 0xba: or16(D, ld16(imm16())); break;
 					case 0xbb: add16(W, ld16(imm16())); break;
 					case 0xbc: cmp16(Y, ld16(imm16())); break;
-					case 0xbe: fmov16(Y = ld16(imm16())); break;
-					case 0xbf: fmov16(Y); st16(imm16(), Y); break;
-					case 0xce: fmov16(S = imm16()); break;
+					case 0xbe: fmov<1>(Y = ld16(imm16())); break;
+					case 0xbf: fmov<1>(Y); st16(imm16(), Y); break;
+					case 0xce: fmov<1>(S = imm16()); break;
 					case 0xdc: t16 = da(); t32 = ld16(t16) << 16; ldq(t32 | ld16(t16 + 2)); break;
 					case 0xdd: stq(da()); break;
-					case 0xde: fmov16(S = ld16(da())); break;
-					case 0xdf: fmov16(S); st16(da(), S); break;
+					case 0xde: fmov<1>(S = ld16(da())); break;
+					case 0xdf: fmov<1>(S); st16(da(), S); break;
 					case 0xec: t16 = ea(); t32 = ld16(t16) << 16; ldq(t32 | ld16(t16 + 2)); break;
 					case 0xed: stq(ea()); break;
-					case 0xee: fmov16(S = ld16(ea())); break;
-					case 0xef: fmov16(S); st16(ea(), S); break;
+					case 0xee: fmov<1>(S = ld16(ea())); break;
+					case 0xef: fmov<1>(S); st16(ea(), S); break;
 					case 0xfc: t16 = imm16(); t32 = ld16(t16) << 16; ldq(t32 | ld16(t16 + 2)); break;
 					case 0xfd: stq(imm16()); break;
-					case 0xfe: fmov16(S = ld16(imm16())); break;
-					case 0xff: fmov16(S); st16(imm16(), S); break;
+					case 0xfe: fmov<1>(S = ld16(imm16())); break;
+					case 0xff: fmov<1>(S); st16(imm16(), S); break;
 					default: md |= 0x40; trap(); break;
 				}
 				CLOCK(clktbl10[op]);
@@ -1002,20 +954,20 @@ int HD6309::Execute(int n) {
 						else { clktbl = eclk; clktbl10 = eclk10; clktbl11 = eclk11; clktblea = eclkea; }
 						break;
 					case 0x3f: trap(0xfff2, 0xff, 0); break; // swi3
-					case 0x43: fcom8(E = ~E); break;
-					case 0x4a: E = fdec8(E - 1, E); break;
-					case 0x4c: E = finc8(E + 1, E); break;
-					case 0x4d: fmov8(E); break;
+					case 0x43: fcom(E = ~E); break;
+					case 0x4a: E = fdec(E - 1, E); break;
+					case 0x4c: E = finc(E + 1, E); break;
+					case 0x4d: fmov(E); break;
 					case 0x4f: E = 0; fclr(); break;
-					case 0x53: fcom8(F = ~F); break;
-					case 0x5a: F = fdec8(F - 1, F); break;
-					case 0x5c: F = finc8(F + 1, F); break;
-					case 0x5d: fmov8(F); break;
+					case 0x53: fcom(F = ~F); break;
+					case 0x5a: F = fdec(F - 1, F); break;
+					case 0x5c: F = finc(F + 1, F); break;
+					case 0x5d: fmov(F); break;
 					case 0x5f: F = 0; fclr(); break;
 					case 0x80: sub8(E, imm8()); break;
 					case 0x81: cmp8(E, imm8()); break;
 					case 0x83: cmp16(U, imm16()); break;
-					case 0x86: fmov8(E = imm8()); break;
+					case 0x86: fmov(E = imm8()); break;
 					case 0x8b: add8(E, imm8()); break;
 					case 0x8c: cmp16(S, imm16()); break;
 					case 0x8d: divd(imm8()); break;
@@ -1024,8 +976,8 @@ int HD6309::Execute(int n) {
 					case 0x90: sub8(E, ld8(da())); break;
 					case 0x91: cmp8(E, ld8(da())); break;
 					case 0x93: cmp16(U, ld16(da())); break;
-					case 0x96: fmov8(E = ld8(da())); break;
-					case 0x97: fmov8(E); st8(da(), E); break;
+					case 0x96: fmov(E = ld8(da())); break;
+					case 0x97: fmov(E); st8(da(), E); break;
 					case 0x9b: add8(E, ld8(da())); break;
 					case 0x9c: cmp16(S, ld16(da())); break;
 					case 0x9d: divd(ld8(da())); break;
@@ -1034,8 +986,8 @@ int HD6309::Execute(int n) {
 					case 0xa0: sub8(E, ld8(ea())); break;
 					case 0xa1: cmp8(E, ld8(ea())); break;
 					case 0xa3: cmp16(U, ld16(ea())); break;
-					case 0xa6: fmov8(E = ld8(ea())); break;
-					case 0xa7: fmov8(E); st8(ea(), E); break;
+					case 0xa6: fmov(E = ld8(ea())); break;
+					case 0xa7: fmov(E); st8(ea(), E); break;
 					case 0xab: add8(E, ld8(ea())); break;
 					case 0xac: cmp16(S, ld16(ea())); break;
 					case 0xad: divd(ld8(ea())); break;
@@ -1044,8 +996,8 @@ int HD6309::Execute(int n) {
 					case 0xb0: sub8(E, ld8(imm16())); break;
 					case 0xb1: cmp8(E, ld8(imm16())); break;
 					case 0xb3: cmp16(U, ld16(imm16())); break;
-					case 0xb6: fmov8(E = ld8(imm16())); break;
-					case 0xb7: fmov8(E); st8(imm16(), E); break;
+					case 0xb6: fmov(E = ld8(imm16())); break;
+					case 0xb7: fmov(E); st8(imm16(), E); break;
 					case 0xbb: add8(E, ld8(imm16())); break;
 					case 0xbc: cmp16(S, ld16(imm16())); break;
 					case 0xbd: divd(ld8(imm16())); break;
@@ -1053,22 +1005,22 @@ int HD6309::Execute(int n) {
 					case 0xbf: muld(ld16(imm16())); break;
 					case 0xc0: sub8(F, imm8()); break;
 					case 0xc1: cmp8(F, imm8()); break;
-					case 0xc6: fmov8(F = imm8()); break;
+					case 0xc6: fmov(F = imm8()); break;
 					case 0xcb: add8(F, imm8()); break;
 					case 0xd0: sub8(F, ld8(da())); break;
 					case 0xd1: cmp8(F, ld8(da())); break;
-					case 0xd6: fmov8(F = ld8(da())); break;
-					case 0xd7: fmov8(F); st8(da(), F); break;
+					case 0xd6: fmov(F = ld8(da())); break;
+					case 0xd7: fmov(F); st8(da(), F); break;
 					case 0xdb: add8(F, ld8(da())); break;
 					case 0xe0: sub8(F, ld8(ea())); break;
 					case 0xe1: cmp8(F, ld8(ea())); break;
-					case 0xe6: fmov8(F = ld8(ea())); break;
-					case 0xe7: fmov8(F); st8(ea(), F); break;
+					case 0xe6: fmov(F = ld8(ea())); break;
+					case 0xe7: fmov(F); st8(ea(), F); break;
 					case 0xeb: add8(F, ld8(ea())); break;
 					case 0xf0: sub8(F, ld8(imm16())); break;
 					case 0xf1: cmp8(F, ld8(imm16())); break;
-					case 0xf6: fmov8(F = ld8(imm16())); break;
-					case 0xf7: fmov8(F); st8(imm16(), F); break;
+					case 0xf6: fmov(F = ld8(imm16())); break;
+					case 0xf7: fmov(F); st8(imm16(), F); break;
 					case 0xfb: add8(F, ld8(imm16())); break;
 					default: md |= 0x40; trap(); break;
 				}
@@ -1092,125 +1044,33 @@ skip_clock:;
 	return clock - n;
 }
 
-template<int M> HD6309::u16 HD6309::fset(u16 a, u16 d, u16 s) {
-	if constexpr ((M & 0xf) == C0)
-		cc &= ~MC;
-	if constexpr ((M & 0xf) == C1)
-		cc |= MC;
-	if constexpr ((M & 0xf) == CD) {
-		if (d & 1) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == C8) {
-		if (a & 0xff) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == C16) {
-		if (a) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CADD8) {
-		if (((s & d) | (~a & d) | (s & ~a)) & 0x80) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CADD16) {
-		if (((s & d) | (~a & d) | (s & ~a)) & 0x8000) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CSUB8) {
-		if (((s & ~d) | (a & ~d) | (s & a)) & 0x80) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CSUB16) {
-		if (((s & ~d) | (a & ~d) | (s & a)) & 0x8000) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CMUL) {
-		if (a & 0x80) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CLEFT8) {
-		if (d & 0x80) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CLEFT16) {
-		if (d & 0x8000) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf) == CDIV) {
-		if (a & 1) cc |= MC;
-		else cc &= ~MC;
-	}
-	if constexpr ((M & 0xf0) == V0)
-		cc &= ~MV;
-	if constexpr ((M & 0xf0) == V1)
-		cc |= MV;
-	if constexpr ((M & 0xf0) == VD) {
-		if (d) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == V8) {
-		if ((a & 0xff) == 0x80) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == V16) {
-		if (a == 0x8000) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == VADD8) {
-		if (((d & s & ~a) | (~d & ~s & a)) & 0x80) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == VADD16) {
-		if (((d & s & ~a) | (~d & ~s & a)) & 0x8000) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == VSUB8) {
-		if (((d & ~s & ~a) | (~d & s & a)) & 0x80) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == VSUB16) {
-		if (((d & ~s & ~a) | (~d & s & a)) & 0x8000) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == VLEFT8) {
-		if ((d >> 6 ^ d >> 7) & 1) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf0) == VLEFT16) {
-		if ((d >> 14 ^ d >> 15) & 1) cc |= MV;
-		else cc &= ~MV;
-	}
-	if constexpr ((M & 0xf00) == Z0)
-		cc &= ~MZ;
-	if constexpr ((M & 0xf00) == Z1)
-		cc |= MZ;
-	if constexpr ((M & 0xf00) == Z8) {
-		if (a & 0xff) cc &= ~MZ;
-		else cc |= MZ;
-	}
-	if constexpr ((M & 0xf00) == Z16) {
-		if (a) cc &= ~MZ;
-		else cc |= MZ;
-	}
-	if constexpr ((M & 0xf00) == Z32) {
-		if (a | d) cc &= ~MZ;
-		else cc |= MZ;
-	}
-	if constexpr ((M & 0xf000) == N0)
-		cc &= ~MN;
-	if constexpr ((M & 0xf000) == N8) {
-		if (a & 0x80) cc |= MN;
-		else cc &= ~MN;
-	}
-	if constexpr ((M & 0xf000) == N16) {
-		if (a & 0x8000) cc |= MN;
-		else cc &= ~MN;
-	}
-	if constexpr ((M & 0xf00000) == HADD8) {
-		if ((d ^ s ^ a) & 0x10) cc |= MH;
-		else cc &= ~MH;
-	}
+#define MSB_N	((8 << SI) - 1)
+#define MSB		(1 << MSB_N)
+#define MASK	((1 << (8 << SI)) - 1)
+
+template<int M, int SI> HD6309::u16 HD6309::fset(u16 a, u16 d, u16 s) {
+	if constexpr ((M & 0xf) == C0) cc &= ~MC;
+	if constexpr ((M & 0xf) == C1) cc |= MC;
+	if constexpr ((M & 0xf) == CD) cc = d & 1 ? cc | MC : cc & ~MC;
+	if constexpr ((M & 0xf) == CDEF) cc = a & MASK ? cc | MC : cc & ~MC;
+	if constexpr ((M & 0xf) == CADD) cc = ((s & d) | (~a & d) | (s & ~a)) & MSB ? cc | MC : cc & ~MC;
+	if constexpr ((M & 0xf) == CSUB) cc = ((s & ~d) | (a & ~d) | (s & a)) & MSB ? cc | MC : cc & ~MC;
+	if constexpr ((M & 0xf) == CMUL) cc = a & 0x80 ? cc | MC : cc & ~MC;
+	if constexpr ((M & 0xf) == CLEFT) cc = d & MSB ? cc | MC : cc & ~MC;
+	if constexpr ((M & 0xf) == CDIV) cc = a & 1 ? cc | MC : cc & ~MC;
+	if constexpr ((M & 0xf0) == V0) cc &= ~MV;
+	if constexpr ((M & 0xf0) == V1) cc |= MV;
+	if constexpr ((M & 0xf0) == VD) cc = d ? cc | MV : cc & ~MV;
+	if constexpr ((M & 0xf0) == VDEF) cc = (a & MASK) == MSB ? cc | MV : cc & ~MV;
+	if constexpr ((M & 0xf0) == VADD) cc = ((d & s & ~a) | (~d & ~s & a)) & MSB ? cc | MV : cc & ~MV;
+	if constexpr ((M & 0xf0) == VSUB) cc = ((d & ~s & ~a) | (~d & s & a)) & MSB ? cc | MV : cc & ~MV;
+	if constexpr ((M & 0xf0) == VLEFT) cc = (d >> (MSB_N - 1) ^ d >> MSB_N) & 1 ? cc | MV : cc & ~MV;
+	if constexpr ((M & 0xf00) == Z0) cc &= ~MZ;
+	if constexpr ((M & 0xf00) == Z1) cc |= MZ;
+	if constexpr ((M & 0xf00) == ZDEF) cc = (SI == 2 ? a | d : a & MASK) ? cc & ~MZ : cc | MZ;
+	if constexpr ((M & 0xf000) == N0) cc &= ~MN;
+	if constexpr ((M & 0xf000) == NDEF) cc = a & MSB ? cc | MN : cc & ~MN;
+	if constexpr ((M & 0xf00000) == HADD) cc = (d ^ s ^ a) & 0x10 ? cc | MH : cc & ~MH;
 	return a;
 }
 
